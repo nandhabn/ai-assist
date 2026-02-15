@@ -1,0 +1,261 @@
+.ai-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  height: 100%;
+}
+
+.ai-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.ai-header h2 {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.ai-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.ai-tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-light);
+  padding: 0 4px;
+  overflow-x: auto;
+}
+
+.tab {
+  padding: 10px 12px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-light);
+  border-bottom: 3px solid transparent;
+  white-space: nowrap;
+  transition: all 0.2s;
+}
+
+.tab:hover {
+  color: var(--text-color);
+}
+
+.tab.active {
+  color: var(--secondary-color);
+  border-bottom-color: var(--secondary-color);
+}
+
+.ai-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 0;
+}
+
+/* Summary View */
+.summary-view {
+  padding: 0 12px;
+}
+
+.markdown-content {
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.markdown-content > div {
+  margin-bottom: 8px;
+}
+
+.heading-1 {
+  font-size: 14px;
+  font-weight: 700;
+  margin-top: 12px;
+  margin-bottom: 8px;
+  color: var(--text-color);
+}
+
+.heading-2 {
+  font-size: 13px;
+  font-weight: 600;
+  margin-top: 10px;
+  margin-bottom: 6px;
+  color: var(--text-color);
+}
+
+.list-item {
+  padding-left: 12px;
+  color: var(--text-color);
+}
+
+.paragraph {
+  color: var(--text-light);
+}
+
+/* Prompt View */
+.prompt-view {
+  padding: 0 12px;
+}
+
+.prompt-box {
+  background: var(--bg-light);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 12px;
+  font-family: 'Monaco', 'Courier New', monospace;
+  font-size: 11px;
+  line-height: 1.4;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.prompt-box pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text-color);
+}
+
+/* Metrics View */
+.metrics-view {
+  padding: 0 12px;
+}
+
+.metrics-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.metric-card {
+  background: var(--bg-light);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 10px;
+  text-align: center;
+}
+
+.metric-label {
+  font-size: 10px;
+  color: var(--text-light);
+  text-transform: capitalize;
+  margin-bottom: 4px;
+}
+
+.metric-value {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--secondary-color);
+}
+
+.api-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.api-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  background: var(--bg-light);
+  border-radius: 4px;
+  font-size: 11px;
+}
+
+.method {
+  background: var(--secondary-color);
+  color: white;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-weight: 600;
+  font-size: 10px;
+  min-width: 40px;
+  text-align: center;
+}
+
+.endpoint {
+  flex: 1;
+  font-family: monospace;
+  word-break: break-all;
+  color: var(--text-color);
+}
+
+.status {
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-weight: 600;
+  font-size: 10px;
+  min-width: 35px;
+  text-align: center;
+}
+
+.status.success {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+.status.error {
+  background: #fee2e2;
+  color: #7f1d1d;
+}
+
+/* Tests View */
+.tests-view {
+  padding: 0 12px;
+}
+
+.test-points {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.test-point {
+  padding: 10px;
+  border-left: 4px solid var(--warning-color);
+  background: var(--bg-light);
+  border-radius: 4px;
+}
+
+.test-point.priority-high {
+  border-left-color: var(--danger-color);
+  background: #fef2f2;
+}
+
+.test-point.priority-medium {
+  border-left-color: var(--warning-color);
+  background: #fffbeb;
+}
+
+.test-point.priority-low {
+  border-left-color: var(--secondary-color);
+  background: #f0f9ff;
+}
+
+.test-point h4 {
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.test-point .description {
+  font-size: 11px;
+  color: var(--text-color);
+  margin-bottom: 4px;
+}
+
+.test-point .suggestion {
+  font-size: 10px;
+  color: var(--text-light);
+  font-style: italic;
+}

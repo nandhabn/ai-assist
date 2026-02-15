@@ -1,0 +1,66 @@
+.recorder-control {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.control-section {
+  background: white;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.control-section h2 {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 12px;
+}
+
+.status-info {
+  padding: 12px;
+  border-radius: 6px;
+  margin-top: 12px;
+  background: var(--bg-light);
+  border-left: 4px solid var(--warning-color);
+}
+
+.status-info.recording {
+  background: #fef2f2;
+  border-left-color: var(--danger-color);
+}
+
+.status-text {
+  font-weight: 500;
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+
+.hint {
+  font-size: 12px;
+  color: var(--text-light);
+}
+
+.info-section {
+  background: #f0f9ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.info-section h3 {
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: #1e40af;
+}
+
+.feature-list {
+  list-style: none;
+}
+
+.feature-list li {
+  font-size: 12px;
+  padding: 4px 0;
+  color: var(--text-color);
+}

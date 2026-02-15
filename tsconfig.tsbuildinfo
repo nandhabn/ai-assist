@@ -1,0 +1,1 @@
+{"root":["./src/content/content.ts","./src/types/index.ts","./src/utils/aiformatter.ts","./src/utils/apiinterceptor.ts","./src/utils/elementanalyzer.ts","./src/utils/flowanalyzer.ts","./src/utils/navigationdetector.ts","./src/utils/selectorgenerator.ts","./src/utils/storage.ts"],"version":"5.9.3"}

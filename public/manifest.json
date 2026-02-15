@@ -1,0 +1,37 @@
+{
+  "manifest_version": 3,
+  "name": "AI Flow Recorder",
+  "version": "1.0.0",
+  "description": "Record user interaction flows for AI-powered test automation",
+  "permissions": [
+    "storage",
+    "webRequest",
+    "tabs",
+    "scripting",
+    "activeTab"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "all_frames": false,
+      "run_at": "document_start"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "AI Flow Recorder"
+  },
+  "icons": {}
+}
