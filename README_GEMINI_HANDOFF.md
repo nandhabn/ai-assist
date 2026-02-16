@@ -1,6 +1,7 @@
 # AI Flow Recorder Chrome Extension — Gemini Handoff
 
 ## Project Overview
+
 - **Purpose:** Chrome Extension (Manifest V3) to record user interaction flows (click/input/submit/route/fetch) for AI-powered test automation.
 - **Frontend:** React (Vite, TypeScript, ES modules) for popup UI.
 - **Architecture:**
@@ -10,6 +11,7 @@
   - **Utilities:** Selector generator, XPath, element analyzer, navigation detector, API interceptor, storage, flow analyzer, AI formatter.
 
 ## Current State
+
 - **All code is TypeScript.**
 - **Build:** Vite, outputs to `dist/`.
 - **Manifest:** Manifest V3, content script is `content.js`, background is `background.js`, popup is `popup.html`.
@@ -19,6 +21,7 @@
 - **Vite config:** Still JS, not yet TS.
 
 ## Outstanding Issues
+
 - **Overlay not visible:**
   - `chrome.storage.local.get('flowRecorder_isRecording')` returns `true`, but overlay does not appear and no events are captured.
   - Likely cause: Content script is not injected or not running on the page. (Check Sources tab in DevTools, add a log at the top of content script, ensure extension is reloaded after build.)
@@ -28,6 +31,7 @@
 - **Vite config:** Still in `.js`, can be converted to `.ts`.
 
 ## Debugging Steps (for Gemini)
+
 1. **Check if content script is injected:**
    - Open DevTools on a target page, go to Sources tab, look for `content.js` under the extension.
    - If not present, content script is not running.
@@ -43,6 +47,7 @@
    - In page console, run: `chrome.storage.local.get('flowRecorder_isRecording', console.log)` (should be `true` if recording is active).
 
 ## Project Structure
+
 - `src/`
   - `content/content.ts` — Content script (records events, shows overlay)
   - `background/background.ts` — Background service worker
@@ -54,6 +59,7 @@
 - `dist/` — Build output (content.js, background.js, popup.js, popup.html, manifest.json)
 
 ## Key Features
+
 - **Event recording:** Click, input, submit, route change, API calls (fetch/XHR)
 - **Visual feedback:** Red overlay when recording
 - **Session management:** Session ID, event storage, session save/clear
@@ -62,6 +68,7 @@
 - **Popup UI:** Start/stop recording, view flows, AI panel
 
 ## Next Steps for Gemini
+
 - Debug why content script/overlay is not running (see steps above)
 - Convert popup React files to TSX
 - Convert vite.config.js to vite.config.ts (optional)

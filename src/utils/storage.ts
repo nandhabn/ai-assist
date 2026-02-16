@@ -1,8 +1,8 @@
 const STORAGE_KEYS = {
-  EVENTS: 'flowRecorder_events',
-  SESSION_ID: 'flowRecorder_sessionId',
-  IS_RECORDING: 'flowRecorder_isRecording',
-  SESSIONS: 'flowRecorder_sessions',
+  EVENTS: "flowRecorder_events",
+  SESSION_ID: "flowRecorder_sessionId",
+  IS_RECORDING: "flowRecorder_isRecording",
+  SESSIONS: "flowRecorder_sessions",
 } as const;
 
 export async function getOrCreateSessionId(): Promise<string> {
@@ -17,6 +17,14 @@ export async function getOrCreateSessionId(): Promise<string> {
     .slice(2, 9)}`;
   await chrome.storage.local.set({ [STORAGE_KEYS.SESSION_ID]: sessionId });
 
+  return sessionId;
+}
+
+export async function createNewSessionId(): Promise<string> {
+  const sessionId = `session_${Date.now()}_${Math.random()
+    .toString(36)
+    .slice(2, 9)}`;
+  await chrome.storage.local.set({ [STORAGE_KEYS.SESSION_ID]: sessionId });
   return sessionId;
 }
 
@@ -78,7 +86,7 @@ export function exportEventsAsJSON(events: any[]): string {
 
 export function watchStorage(callback: (changes: any) => void) {
   const handleStorageChange = (changes: any, areaName: string) => {
-    if (areaName === 'local') {
+    if (areaName === "local") {
       callback(changes);
     }
   };

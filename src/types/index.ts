@@ -1,29 +1,29 @@
 export const ACTION_TYPES = {
-  CLICK: 'click',
-  INPUT: 'input',
-  SUBMIT: 'submit',
-  API_CALL: 'api_call',
-  ROUTE_CHANGE: 'route_change',
+  CLICK: "click",
+  INPUT: "input",
+  SUBMIT: "submit",
+  API_CALL: "api_call",
+  ROUTE_CHANGE: "route_change",
 } as const;
 
 export const ELEMENT_TYPES = {
-  BUTTON: 'button',
-  INPUT: 'input',
-  FORM: 'form',
-  LINK: 'a',
-  DIV: 'div',
-  SPAN: 'span',
+  BUTTON: "button",
+  INPUT: "input",
+  FORM: "form",
+  LINK: "a",
+  DIV: "div",
+  SPAN: "span",
 } as const;
 
 export const API_METHODS = {
-  GET: 'GET',
-  POST: 'POST',
-  PUT: 'PUT',
-  DELETE: 'DELETE',
-  PATCH: 'PATCH',
+  GET: "GET",
+  POST: "POST",
+  PUT: "PUT",
+  DELETE: "DELETE",
+  PATCH: "PATCH",
 } as const;
 
-export type ActionType = typeof ACTION_TYPES[keyof typeof ACTION_TYPES];
+export type ActionType = (typeof ACTION_TYPES)[keyof typeof ACTION_TYPES];
 
 export interface ElementMetadata {
   tag: string;
@@ -36,6 +36,7 @@ export interface ElementMetadata {
   ariaLabel?: string;
   dataTestId?: string;
   parentForm?: string | null;
+  value?: string;
 }
 
 export interface Selector {

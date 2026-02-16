@@ -1,26 +1,26 @@
-import type { ElementMetadata } from '@/types/index';
+import type { ElementMetadata } from "@/types/index";
 
 export function extractElementMetadata(element: HTMLElement): ElementMetadata {
   return {
     tag: element.tagName.toLowerCase(),
     id: element.id || undefined,
     className: element.className || undefined,
-    innerText: (element.innerText || '').trim().substring(0, 100),
+    innerText: (element.innerText || "").trim().substring(0, 100),
     name: (element as HTMLInputElement).name || undefined,
     type: (element as HTMLInputElement).type || undefined,
-    role: element.getAttribute('role') || undefined,
-    ariaLabel: element.getAttribute('aria-label') || undefined,
-    dataTestId: element.getAttribute('data-testid') || undefined,
+    role: element.getAttribute("role") || undefined,
+    ariaLabel: element.getAttribute("aria-label") || undefined,
+    dataTestId: element.getAttribute("data-testid") || undefined,
   } as ElementMetadata;
 }
 
 export function isFormElement(element: HTMLElement | null): boolean {
   if (!element) return false;
-  const formTags = ['input', 'textarea', 'select', 'button'];
+  const formTags = ["input", "textarea", "select", "button"];
   let current: HTMLElement | null = element;
 
   while (current) {
-    if (current.tagName.toLowerCase() === 'form') {
+    if (current.tagName.toLowerCase() === "form") {
       return true;
     }
     if (formTags.includes(current.tagName.toLowerCase())) {
@@ -32,10 +32,12 @@ export function isFormElement(element: HTMLElement | null): boolean {
   return false;
 }
 
-export function getParentForm(element: HTMLElement | null): HTMLFormElement | null {
+export function getParentForm(
+  element: HTMLElement | null,
+): HTMLFormElement | null {
   let current: HTMLElement | null = element;
   while (current) {
-    if (current.tagName.toLowerCase() === 'form') {
+    if (current.tagName.toLowerCase() === "form") {
       return current as HTMLFormElement;
     }
     current = current.parentElement;
@@ -63,17 +65,17 @@ export function extractFormData(form: HTMLFormElement): Record<string, any> {
 }
 
 export function isClickable(element: HTMLElement): boolean {
-  const clickableTags = ['button', 'a', 'input', 'select', 'textarea', 'label'];
+  const clickableTags = ["button", "a", "input", "select", "textarea", "label"];
 
   if (clickableTags.includes(element.tagName.toLowerCase())) {
     return true;
   }
 
-  const onclick = (element as any).onclick || element.getAttribute('onclick');
+  const onclick = (element as any).onclick || element.getAttribute("onclick");
   if (onclick) return true;
 
-  const role = element.getAttribute('role');
-  if (role && ['button', 'link', 'tab', 'menuitem'].includes(role)) {
+  const role = element.getAttribute("role");
+  if (role && ["button", "link", "tab", "menuitem"].includes(role)) {
     return true;
   }
 
@@ -85,7 +87,11 @@ export function isElementVisible(element: HTMLElement | null): boolean {
 
   const style = window.getComputedStyle(element);
 
-  if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') {
+  if (
+    style.display === "none" ||
+    style.visibility === "hidden" ||
+    style.opacity === "0"
+  ) {
     return false;
   }
 

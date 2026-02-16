@@ -5,6 +5,7 @@ A production-grade Chrome Extension (Manifest V3) that records user interaction 
 ## Features
 
 ### 🎯 Core Recording Capabilities
+
 - **Click Events**: Tracks all user clicks with element metadata
 - **Input Changes**: Records form field interactions
 - **Form Submissions**: Captures form data and submission events
@@ -12,7 +13,9 @@ A production-grade Chrome Extension (Manifest V3) that records user interaction 
 - **API Interception**: Monitors fetch and XHR calls with response status
 
 ### 📊 Event Tracking
+
 Each recorded event includes:
+
 - Session ID & timestamp
 - Current URL and route (pathname)
 - Action type (click, input, submit, api_call, route_change)
@@ -24,13 +27,16 @@ Each recorded event includes:
 - API details (method, endpoint, status, duration)
 
 ### 🧠 AI Intelligence Layer
+
 - **Flow Analysis**: Groups events into logical flows with graph structure
 - **Form Detection**: Identifies and maps form fields
 - **API Tracking**: Extracts endpoints and call patterns
 - **Test Point Identification**: Suggests testing scenarios
 
 ### 🤖 AI Preparation
+
 Converts recorded flows into:
+
 - **Structured Prompts**: LLM-ready test generation prompts
 - **User Journey Summaries**: High-level flow descriptions
 - **Test Recommendations**: Validation, edge cases, error scenarios
@@ -39,6 +45,7 @@ Converts recorded flows into:
 ## Installation
 
 ### Prerequisites
+
 - Node.js 16+
 - npm or yarn
 - Chrome/Chromium browser
@@ -138,6 +145,7 @@ package.json                  # Project dependencies
 ## Architecture
 
 ### Manifest V3 Compliance
+
 - ✅ Service worker (not background page)
 - ✅ Content script for DOM access
 - ✅ chrome.storage API for data persistence
@@ -145,6 +153,7 @@ package.json                  # Project dependencies
 - ✅ ES Modules throughout
 
 ### Security & Privacy
+
 - Local-only storage (no backend)
 - No external API calls
 - User-controlled recording
@@ -152,6 +161,7 @@ package.json                  # Project dependencies
 - Session-based isolation
 
 ### Performance
+
 - Efficient event deduplication
 - Minimal DOM traversal
 - Optimized storage operations
@@ -162,6 +172,7 @@ package.json                  # Project dependencies
 ### Modifying Recording Behavior
 
 **src/content/content.js**:
+
 ```javascript
 // Change tracked elements in shouldTrackElement()
 function shouldTrackElement(element) {
@@ -170,6 +181,7 @@ function shouldTrackElement(element) {
 ```
 
 **src/utils/navigationDetector.js**:
+
 ```javascript
 // Adjust SPA detection sensitivity
 export function isDifferentPage(url1, url2) {
@@ -180,8 +192,9 @@ export function isDifferentPage(url1, url2) {
 ## API Reference
 
 ### Storage API
+
 ```javascript
-import * as storage from '@/utils/storage.js';
+import * as storage from "@/utils/storage.js";
 
 await storage.saveEvent(event);
 const events = await storage.getEvents();
@@ -189,24 +202,30 @@ await storage.clearEvents();
 ```
 
 ### Flow Analysis
+
 ```javascript
-import { analyzeEventFlow } from '@/utils/flowAnalyzer.js';
+import { analyzeEventFlow } from "@/utils/flowAnalyzer.js";
 
 const flow = analyzeEventFlow(events);
 // Returns: { nodes, edges, stats }
 ```
 
 ### AI Formatting
+
 ```javascript
-import { prepareFlowForAI } from '@/utils/aiFormatter.js';
+import { prepareFlowForAI } from "@/utils/aiFormatter.js";
 
 const aiData = prepareFlowForAI(flowData);
 // Returns: { summary, structuredPrompt, metadata, ... }
 ```
 
 ### Selector Generation
+
 ```javascript
-import { generateCSSSelector, generateXPath } from '@/utils/selectorGenerator.js';
+import {
+  generateCSSSelector,
+  generateXPath,
+} from "@/utils/selectorGenerator.js";
 
 const cssSelector = generateCSSSelector(element);
 const xpathSelector = generateXPath(element);
@@ -215,6 +234,7 @@ const xpathSelector = generateXPath(element);
 ## Output Examples
 
 ### Recorded Event
+
 ```json
 {
   "sessionId": "session_1707043200000_abc123",
@@ -237,6 +257,7 @@ const xpathSelector = generateXPath(element);
 ```
 
 ### AI Prepared Flow
+
 ```json
 {
   "summary": "## User Journey Summary\n- Pages visited: 3\n- User actions: 8\n- API calls: 2",
@@ -258,6 +279,7 @@ const xpathSelector = generateXPath(element);
 ## Supported Test Scenarios
 
 The AI panel automatically suggests tests for:
+
 - ✅ Form validation (empty fields, formats, edge cases)
 - ✅ API endpoints (normal flow, errors, timeouts)
 - ✅ Navigation flows (page transitions, state persistence)
@@ -291,16 +313,19 @@ The AI panel automatically suggests tests for:
 ## Troubleshooting
 
 ### Events Not Recorded
+
 1. Ensure extension is enabled in chrome://extensions/
 2. Check recording status (red badge indicates recording)
 3. Clear extension data and try again
 
 ### Selectors Not Working
+
 1. CSS selectors are prioritized; XPath used as fallback
 2. Dynamic elements may require custom selector logic
 3. Check browser console for errors
 
 ### AI Analysis Missing
+
 1. Requires at least 5-10 events recorded
 2. Check event types are diverse (not just clicks)
 3. Ensure URLs contain meaningful paths
@@ -308,11 +333,13 @@ The AI panel automatically suggests tests for:
 ## Development Notes
 
 ### Adding New Event Types
+
 1. Add to `ACTION_TYPES` in `src/types/index.js`
 2. Implement listener in `src/content/content.js`
 3. Update analyzer in `src/utils/flowAnalyzer.js`
 
 ### Extending AI Analysis
+
 1. Modify `prepareFlowForAI()` in `src/utils/aiFormatter.js`
 2. Update AI panel component `src/popup/components/AIPanel.jsx`
 3. Test with sample flows

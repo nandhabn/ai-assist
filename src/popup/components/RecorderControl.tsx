@@ -1,13 +1,19 @@
-import React from 'react';
-import '../styles/RecorderControl.css';
+import React from "react";
+import "../styles/RecorderControl.css";
 
-export default function RecorderControl({ onRecordingChange }) {
+interface RecorderControlProps {
+  onRecordingChange: (isRecording: boolean) => void;
+}
+
+export default function RecorderControl({
+  onRecordingChange,
+}: RecorderControlProps) {
   const [isRecording, setIsRecording] = React.useState(false);
   const [buttonLoading, setButtonLoading] = React.useState(false);
 
   React.useEffect(() => {
     // Check initial recording status
-    chrome.storage.local.get(['flowRecorder_isRecording'], (data) => {
+    chrome.storage.local.get(["flowRecorder_isRecording"], (data) => {
       setIsRecording(data.flowRecorder_isRecording || false);
     });
   }, []);
@@ -15,18 +21,17 @@ export default function RecorderControl({ onRecordingChange }) {
   const handleStartRecording = async () => {
     setButtonLoading(true);
     try {
-      await new Promise((resolve) => {
-        chrome.runtime.sendMessage(
-          { action: 'START_RECORDING' },
-          () => resolve()
+      await new Promise<void>((resolve) => {
+        chrome.runtime.sendMessage({ action: "START_RECORDING" }, () =>
+          resolve(),
         );
       });
 
       setIsRecording(true);
       onRecordingChange(true);
     } catch (error) {
-      console.error('Failed to start recording:', error);
-      alert('Failed to start recording');
+      console.error("Failed to start recording:", error);
+      alert("Failed to start recording");
     } finally {
       setButtonLoading(false);
     }
@@ -35,37 +40,33 @@ export default function RecorderControl({ onRecordingChange }) {
   const handleStopRecording = async () => {
     setButtonLoading(true);
     try {
-      await new Promise((resolve) => {
-        chrome.runtime.sendMessage(
-          { action: 'STOP_RECORDING' },
-          () => resolve()
+      await new Promise<void>((resolve) => {
+        chrome.runtime.sendMessage({ action: "STOP_RECORDING" }, () =>
+          resolve(),
         );
       });
 
       setIsRecording(false);
       onRecordingChange(false);
     } catch (error) {
-      console.error('Failed to stop recording:', error);
-      alert('Failed to stop recording');
+      console.error("Failed to stop recording:", error);
+      alert("Failed to stop recording");
     } finally {
       setButtonLoading(false);
     }
   };
 
   const handleClear = async () => {
-    if (!window.confirm('Clear all recorded events?')) return;
+    if (!window.confirm("Clear all recorded events?")) return;
 
     try {
-      await new Promise((resolve) => {
-        chrome.runtime.sendMessage(
-          { action: 'CLEAR_EVENTS' },
-          () => resolve()
-        );
+      await new Promise<void>((resolve) => {
+        chrome.runtime.sendMessage({ action: "CLEAR_EVENTS" }, () => resolve());
       });
 
-      alert('Events cleared');
+      alert("Events cleared");
     } catch (error) {
-      console.error('Failed to clear events:', error);
+      console.error("Failed to clear events:", error);
     }
   };
 
@@ -76,11 +77,11 @@ export default function RecorderControl({ onRecordingChange }) {
 
         <div className="button-group">
           <button
-            className={`btn btn-primary ${isRecording ? 'btn-danger' : 'btn-success'}`}
+            className={`btn btn-primary ${isRecording ? "btn-danger" : "btn-success"}`}
             onClick={isRecording ? handleStopRecording : handleStartRecording}
             disabled={buttonLoading}
           >
-            {buttonLoading ? 'Loading...' : isRecording ? '⏹ Stop' : '⏽ Start'}
+            {buttonLoading ? "Loading..." : isRecording ? "⏹ Stop" : "⏽ Start"}
           </button>
 
           <button
@@ -92,14 +93,14 @@ export default function RecorderControl({ onRecordingChange }) {
           </button>
         </div>
 
-        <div className={`status-info ${isRecording ? 'recording' : 'idle'}`}>
+        <div className={`status-info ${isRecording ? "recording" : "idle"}`}>
           <p className="status-text">
-            {isRecording ? '🔴 Recording active' : '⚫ Not recording'}
+            {isRecording ? "🔴 Recording active" : "⚫ Not recording"}
           </p>
           <p className="hint">
             {isRecording
-              ? 'All interactions are being tracked'
-              : 'Click Start to begin recording user interactions'}
+              ? "All interactions are being tracked"
+              : "Click Start to begin recording user interactions"}
           </p>
         </div>
       </div>

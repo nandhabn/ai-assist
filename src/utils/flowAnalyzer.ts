@@ -1,5 +1,5 @@
-import { ACTION_TYPES } from '@/types/index';
-import type { RecordedEvent, FlowNode, FlowEdge } from '@/types/index';
+import { ACTION_TYPES } from "@/types/index";
+import type { RecordedEvent, FlowNode, FlowEdge } from "@/types/index";
 
 export function analyzeEventFlow(events: RecordedEvent[] | any[]) {
   if (!events || events.length === 0) {
@@ -33,8 +33,8 @@ export function analyzeEventFlow(events: RecordedEvent[] | any[]) {
 
         nodes.push({
           id,
-          type: 'page',
-          label: event.route || '/',
+          type: "page",
+          label: event.route || "/",
           metadata: {
             url: event.url,
             timestamp: event.timestamp,
@@ -42,7 +42,7 @@ export function analyzeEventFlow(events: RecordedEvent[] | any[]) {
         });
 
         if (lastPageNode) {
-          edges.push({ from: lastPageNode, to: id, type: 'transition' });
+          edges.push({ from: lastPageNode, to: id, type: "transition" });
         }
 
         lastPageNode = id;
@@ -58,7 +58,7 @@ export function analyzeEventFlow(events: RecordedEvent[] | any[]) {
 
       nodes.push({
         id: actionId,
-        type: 'action',
+        type: "action",
         label: getActionLabel(event),
         metadata: {
           actionType: event.actionType,
@@ -71,11 +71,15 @@ export function analyzeEventFlow(events: RecordedEvent[] | any[]) {
       actionNodes.push(actionId);
 
       if (lastPageNode) {
-        edges.push({ from: lastPageNode, to: actionId, type: 'action' });
+        edges.push({ from: lastPageNode, to: actionId, type: "action" });
       }
 
       if (actionNodes.length > 1) {
-        edges.push({ from: actionNodes[actionNodes.length - 2], to: actionId, type: 'sequence' });
+        edges.push({
+          from: actionNodes[actionNodes.length - 2],
+          to: actionId,
+          type: "sequence",
+        });
       }
     }
 
@@ -84,7 +88,7 @@ export function analyzeEventFlow(events: RecordedEvent[] | any[]) {
 
       nodes.push({
         id: apiId,
-        type: 'api',
+        type: "api",
         label: `${event.apiDetails.method} ${event.apiDetails.endpoint}`,
         metadata: {
           method: event.apiDetails.method,
@@ -96,7 +100,11 @@ export function analyzeEventFlow(events: RecordedEvent[] | any[]) {
       });
 
       if (actionNodes.length > 0) {
-        edges.push({ from: actionNodes[actionNodes.length - 1], to: apiId, type: 'triggers' });
+        edges.push({
+          from: actionNodes[actionNodes.length - 1],
+          to: apiId,
+          type: "triggers",
+        });
       }
     }
   });
@@ -108,7 +116,7 @@ export function analyzeEventFlow(events: RecordedEvent[] | any[]) {
       totalEvents: events.length,
       pageViews: routeNodes.size,
       userActions: actionNodes.length,
-      apiCalls: nodes.filter(n => n.type === 'api').length,
+      apiCalls: nodes.filter((n) => n.type === "api").length,
     },
   };
 }
@@ -127,7 +135,10 @@ export function detectForms(events: any[]) {
   const forms = new Map<string, any>();
 
   events.forEach((event) => {
-    if (event.actionType === ACTION_TYPES.SUBMIT || event.actionType === ACTION_TYPES.INPUT) {
+    if (
+      event.actionType === ACTION_TYPES.SUBMIT ||
+      event.actionType === ACTION_TYPES.INPUT
+    ) {
       const parentForm = event.elementMetadata?.parentForm;
       if (!parentForm) return;
 
@@ -155,8 +166,8 @@ export function detectForms(events: any[]) {
 
 export function extractAPIInfo(events: any[]) {
   return events
-    .filter(e => e.actionType === ACTION_TYPES.API_CALL)
-    .map(e => ({
+    .filter((e) => e.actionType === ACTION_TYPES.API_CALL)
+    .map((e) => ({
       method: e.apiDetails.method,
       endpoint: e.apiDetails.endpoint,
       status: e.apiDetails.status,
@@ -168,25 +179,29 @@ export function extractAPIInfo(events: any[]) {
 export function identifyTestPoints(events: any[]) {
   const testPoints: any[] = [];
 
-  const apiCalls = events.filter(e => e.actionType === ACTION_TYPES.API_CALL);
-  const submissions = events.filter(e => e.actionType === ACTION_TYPES.SUBMIT);
-  const routes = events.filter(e => e.actionType === ACTION_TYPES.ROUTE_CHANGE);
+  const apiCalls = events.filter((e) => e.actionType === ACTION_TYPES.API_CALL);
+  const submissions = events.filter(
+    (e) => e.actionType === ACTION_TYPES.SUBMIT,
+  );
+  const routes = events.filter(
+    (e) => e.actionType === ACTION_TYPES.ROUTE_CHANGE,
+  );
 
   if (submissions.length > 0) {
     testPoints.push({
-      type: 'form_validation',
-      priority: 'high',
+      type: "form_validation",
+      priority: "high",
       description: `Test form validation for ${submissions.length} form(s)`,
-      suggestion: 'Test with empty fields, invalid formats, and edge cases',
+      suggestion: "Test with empty fields, invalid formats, and edge cases",
     });
   }
 
   if (apiCalls.length > 0) {
-    const failedCalls = apiCalls.filter(e => e.apiDetails.status >= 400);
+    const failedCalls = apiCalls.filter((e) => e.apiDetails.status >= 400);
 
     testPoints.push({
-      type: 'api_behavior',
-      priority: 'high',
+      type: "api_behavior",
+      priority: "high",
       description: `Test ${apiCalls.length} API endpoint(s)`,
       suggestion: `Test normal flow, network errors, and timeouts. ${failedCalls.length} failed calls detected.`,
     });
@@ -194,36 +209,36 @@ export function identifyTestPoints(events: any[]) {
 
   if (routes.length > 1) {
     testPoints.push({
-      type: 'navigation_flow',
-      priority: 'medium',
+      type: "navigation_flow",
+      priority: "medium",
       description: `Test navigation across ${routes.length} page(s)`,
-      suggestion: 'Verify page transitions and state persistence',
+      suggestion: "Verify page transitions and state persistence",
     });
   }
 
   const hasAuthActions = events.some(
-    e =>
-      e.elementMetadata?.ariaLabel?.toLowerCase().includes('login')
-      || e.elementMetadata?.ariaLabel?.toLowerCase().includes('signin')
+    (e) =>
+      e.elementMetadata?.ariaLabel?.toLowerCase().includes("login") ||
+      e.elementMetadata?.ariaLabel?.toLowerCase().includes("signin"),
   );
 
   if (hasAuthActions) {
     testPoints.push({
-      type: 'auth_flow',
-      priority: 'high',
-      description: 'Test authentication flow',
-      suggestion: 'Test login, logout, session expiration, and token refresh',
+      type: "auth_flow",
+      priority: "high",
+      description: "Test authentication flow",
+      suggestion: "Test login, logout, session expiration, and token refresh",
     });
   }
 
-  const inputEvents = events.filter(e => e.actionType === ACTION_TYPES.INPUT);
+  const inputEvents = events.filter((e) => e.actionType === ACTION_TYPES.INPUT);
   if (inputEvents.length > 0) {
     testPoints.push({
-      type: 'user_input',
-      priority: 'medium',
+      type: "user_input",
+      priority: "medium",
       description: `Test ${inputEvents.length} user input field(s)`,
       suggestion:
-        'Test with various inputs, special characters, and boundary values',
+        "Test with various inputs, special characters, and boundary values",
     });
   }
 

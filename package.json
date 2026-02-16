@@ -4,8 +4,8 @@
   "description": "AI Flow Recorder - Chrome Extension for Testing Automation",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
+    "dev": "vite & vite build --config vite.config.content.ts --watch",
+    "build": "vite build && vite build --config vite.config.content.ts",
     "preview": "vite preview",
     "check": "tsc -b"
   },

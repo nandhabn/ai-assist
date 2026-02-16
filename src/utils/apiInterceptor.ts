@@ -1,13 +1,15 @@
-import type { APIDetails } from '@/types/index';
+import type { APIDetails } from "@/types/index";
 
-export function overrideFetch(onAPICall: (d: APIDetails & { timestamp?: number; error?: string }) => void) {
+export function overrideFetch(
+  onAPICall: (d: APIDetails & { timestamp?: number; error?: string }) => void,
+) {
   const originalFetch = window.fetch.bind(window);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (window as any).fetch = async function (...args: any[]) {
     const [resource, config] = args;
-    const url = typeof resource === 'string' ? resource : resource?.url;
-    const method = (config?.method || 'GET').toUpperCase();
+    const url = typeof resource === "string" ? resource : resource?.url;
+    const method = (config?.method || "GET").toUpperCase();
 
     const startTime = performance.now();
 
@@ -59,12 +61,18 @@ export function overrideFetch(onAPICall: (d: APIDetails & { timestamp?: number; 
   };
 }
 
-export function overrideXHR(onAPICall: (d: APIDetails & { timestamp?: number }) => void) {
+export function overrideXHR(
+  onAPICall: (d: APIDetails & { timestamp?: number }) => void,
+) {
   const originalOpen = XMLHttpRequest.prototype.open;
   const originalSend = XMLHttpRequest.prototype.send;
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  XMLHttpRequest.prototype.open = function (this: any, method: string, url: string) {
+  XMLHttpRequest.prototype.open = function (
+    this: any,
+    method: string,
+    url: string,
+  ) {
     this.__method = method;
     this.__url = url;
     this.__startTime = performance.now();

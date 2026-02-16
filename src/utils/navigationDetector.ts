@@ -43,13 +43,13 @@ export function detectRouteChanges(callback: (info: RouteChange) => void) {
     return result;
   };
 
-  window.addEventListener('popstate', checkRoute);
+  window.addEventListener("popstate", checkRoute);
 
   return () => {
     observer.disconnect();
     (window.history as any).pushState = originalPushState;
     (window.history as any).replaceState = originalReplaceState;
-    window.removeEventListener('popstate', checkRoute);
+    window.removeEventListener("popstate", checkRoute);
   };
 }
 
@@ -58,7 +58,7 @@ export function extractDomain(url: string): string {
     const urlObj = new URL(url);
     return urlObj.hostname;
   } catch {
-    return '';
+    return "";
   }
 }
 
@@ -69,8 +69,8 @@ export function isDifferentPage(url1: string, url2: string): boolean {
 
     if (u1.hostname !== u2.hostname) return true;
 
-    const path1 = u1.pathname.split('/').filter(Boolean);
-    const path2 = u2.pathname.split('/').filter(Boolean);
+    const path1 = u1.pathname.split("/").filter(Boolean);
+    const path2 = u2.pathname.split("/").filter(Boolean);
 
     if (path1.length === 0 && path2.length > 0) return true;
     if (path1.length > 0 && path2.length === 0) return true;
@@ -86,7 +86,7 @@ export function isDifferentPage(url1: string, url2: string): boolean {
 export function sanitizeURL(url: string): string {
   try {
     const urlObj = new URL(url);
-    const trackingParams = ['utm_', 'fbclid', 'gclid', 'msclkid', '_ga'];
+    const trackingParams = ["utm_", "fbclid", "gclid", "msclkid", "_ga"];
 
     trackingParams.forEach((param) => {
       const keys = [...urlObj.searchParams.keys()];

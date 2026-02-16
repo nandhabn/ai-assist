@@ -109,7 +109,7 @@
   border: 1px solid var(--border-color);
   border-radius: 6px;
   padding: 12px;
-  font-family: 'Monaco', 'Courier New', monospace;
+  font-family: "Monaco", "Courier New", monospace;
   font-size: 11px;
   line-height: 1.4;
   max-height: 400px;

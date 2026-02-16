@@ -1,10 +1,23 @@
-import React from 'react';
-import '../styles/AIPanel.css';
+import React from "react";
+import "../styles/AIPanel.css";
+
+interface AiData {
+  structuredPrompt: string;
+  summary: string;
+  metadata: Record<string, any>;
+  apis: { method: string; endpoint: string; status: number }[];
+  testPoints: {
+    priority: string;
+    type: string;
+    description: string;
+    suggestion: string;
+  }[];
+}
 
 export default function AIPanel() {
-  const [aiData, setAIData] = React.useState(null);
+  const [aiData, setAIData] = React.useState<AiData | null>(null);
   const [loading, setLoading] = React.useState(false);
-  const [activeTab, setActiveTab] = React.useState('summary');
+  const [activeTab, setActiveTab] = React.useState("summary");
 
   React.useEffect(() => {
     loadAIData();
@@ -13,12 +26,12 @@ export default function AIPanel() {
   const loadAIData = async () => {
     setLoading(true);
     try {
-      const response = await new Promise((resolve) => {
-        chrome.runtime.sendMessage({ action: 'PREPARE_FOR_AI' }, resolve);
+      const response = await new Promise<AiData>((resolve) => {
+        chrome.runtime.sendMessage({ action: "PREPARE_FOR_AI" }, resolve);
       });
       setAIData(response);
     } catch (error) {
-      console.error('Failed to prepare flow:', error);
+      console.error("Failed to prepare flow:", error);
     } finally {
       setLoading(false);
     }
@@ -27,15 +40,16 @@ export default function AIPanel() {
   const handleCopyPrompt = () => {
     if (aiData?.structuredPrompt) {
       navigator.clipboard.writeText(aiData.structuredPrompt);
-      alert('Prompt copied to clipboard!');
+      alert("Prompt copied to clipboard!");
     }
   };
 
   const handleExportMarkdown = () => {
-    const content = `# Flow Analysis Report\n\n${aiData?.summary || ''}\n\n---\n\n${aiData?.structuredPrompt || ''}`;
-    const blob = new Blob([content], { type: 'text/markdown' });
+    if (!aiData) return;
+    const content = `# Flow Analysis Report\n\n${aiData.summary || ""}\n\n---\n\n${aiData.structuredPrompt || ""}`;
+    const blob = new Blob([content], { type: "text/markdown" });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
+    const a = document.createElement("a");
     a.href = url;
     a.download = `flow_report_${Date.now()}.md`;
     a.click();
@@ -43,7 +57,11 @@ export default function AIPanel() {
   };
 
   if (loading) {
-    return <div className="ai-panel"><p>Loading...</p></div>;
+    return (
+      <div className="ai-panel">
+        <p>Loading...</p>
+      </div>
+    );
   }
 
   if (!aiData) {
@@ -65,10 +83,16 @@ export default function AIPanel() {
           <button className="btn btn-secondary btn-sm" onClick={loadAIData}>
             ⟲ Refresh
           </button>
-          <button className="btn btn-secondary btn-sm" onClick={handleCopyPrompt}>
+          <button
+            className="btn btn-secondary btn-sm"
+            onClick={handleCopyPrompt}
+          >
             📋 Copy Prompt
           </button>
-          <button className="btn btn-secondary btn-sm" onClick={handleExportMarkdown}>
+          <button
+            className="btn btn-secondary btn-sm"
+            onClick={handleExportMarkdown}
+          >
             📄 Export
           </button>
         </div>
@@ -76,67 +100,66 @@ export default function AIPanel() {
 
       <div className="ai-tabs">
         <button
-          className={`tab ${activeTab === 'summary' ? 'active' : ''}`}
-          onClick={() => setActiveTab('summary')}
+          className={`tab ${activeTab === "summary" ? "active" : ""}`}
+          onClick={() => setActiveTab("summary")}
         >
           Summary
         </button>
         <button
-          className={`tab ${activeTab === 'prompt' ? 'active' : ''}`}
-          onClick={() => setActiveTab('prompt')}
+          className={`tab ${activeTab === "prompt" ? "active" : ""}`}
+          onClick={() => setActiveTab("prompt")}
         >
           LLM Prompt
         </button>
         <button
-          className={`tab ${activeTab === 'metrics' ? 'active' : ''}`}
-          onClick={() => setActiveTab('metrics')}
+          className={`tab ${activeTab === "metrics" ? "active" : ""}`}
+          onClick={() => setActiveTab("metrics")}
         >
           Metrics
         </button>
         <button
-          className={`tab ${activeTab === 'tests' ? 'active' : ''}`}
-          onClick={() => setActiveTab('tests')}
+          className={`tab ${activeTab === "tests" ? "active" : ""}`}
+          onClick={() => setActiveTab("tests")}
         >
           Test Points
         </button>
       </div>
 
       <div className="ai-content">
-        {activeTab === 'summary' && (
+        {activeTab === "summary" && (
           <div className="summary-view">
             <div className="markdown-content">
               {aiData.summary
-                ? aiData.summary.split('\n').map((line, i) => (
+                ? aiData.summary.split("\n").map((line, i) => (
                     <div key={i} className={getLevelClass(line)}>
                       {line}
                     </div>
                   ))
-                : 'No summary available'}
+                : "No summary available"}
             </div>
           </div>
         )}
 
-        {activeTab === 'prompt' && (
+        {activeTab === "prompt" && (
           <div className="prompt-view">
             <div className="prompt-box">
-              <pre>{aiData.structuredPrompt || 'No prompt generated'}</pre>
+              <pre>{aiData.structuredPrompt || "No prompt generated"}</pre>
             </div>
           </div>
         )}
 
-        {activeTab === 'metrics' && (
+        {activeTab === "metrics" && (
           <div className="metrics-view">
             <div className="metrics-grid">
-              {aiData.metadata && Object.entries(aiData.metadata).map(
-                ([key, value]) => (
+              {aiData.metadata &&
+                Object.entries(aiData.metadata).map(([key, value]) => (
                   <div key={key} className="metric-card">
                     <div className="metric-label">
-                      {key.replace(/([A-Z])/g, ' $1').toLowerCase()}
+                      {key.replace(/([A-Z])/g, " $1").toLowerCase()}
                     </div>
-                    <div className="metric-value">{value}</div>
+                    <div className="metric-value">{String(value)}</div>
                   </div>
-                )
-              )}
+                ))}
             </div>
 
             {aiData.apis && aiData.apis.length > 0 && (
@@ -147,7 +170,9 @@ export default function AIPanel() {
                     <div key={i} className="api-item">
                       <span className="method">{api.method}</span>
                       <span className="endpoint">{api.endpoint}</span>
-                      <span className={`status ${api.status < 400 ? 'success' : 'error'}`}>
+                      <span
+                        className={`status ${api.status < 400 ? "success" : "error"}`}
+                      >
                         {api.status}
                       </span>
                     </div>
@@ -158,13 +183,16 @@ export default function AIPanel() {
           </div>
         )}
 
-        {activeTab === 'tests' && (
+        {activeTab === "tests" && (
           <div className="tests-view">
             {aiData.testPoints && aiData.testPoints.length > 0 ? (
               <div className="test-points">
                 {aiData.testPoints.map((point, i) => (
-                  <div key={i} className={`test-point priority-${point.priority}`}>
-                    <h4>{point.type.replace(/_/g, ' ').toUpperCase()}</h4>
+                  <div
+                    key={i}
+                    className={`test-point priority-${point.priority}`}
+                  >
+                    <h4>{point.type.replace(/_/g, " ").toUpperCase()}</h4>
                     <p className="description">{point.description}</p>
                     <p className="suggestion">{point.suggestion}</p>
                   </div>
@@ -180,9 +208,9 @@ export default function AIPanel() {
   );
 }
 
-function getLevelClass(line) {
-  if (line.startsWith('##')) return 'heading-2';
-  if (line.startsWith('#')) return 'heading-1';
-  if (line.startsWith('- ')) return 'list-item';
-  return 'paragraph';
+function getLevelClass(line: string) {
+  if (line.startsWith("##")) return "heading-2";
+  if (line.startsWith("#")) return "heading-1";
+  if (line.startsWith("- ")) return "list-item";
+  return "paragraph";
 }

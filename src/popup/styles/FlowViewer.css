@@ -140,6 +140,56 @@ code {
   background: var(--bg-light);
   padding: 2px 4px;
   border-radius: 3px;
-  font-family: 'Monaco', 'Courier New', monospace;
+  font-family: "Monaco", "Courier New", monospace;
   font-size: 10px;
+}
+
+.sessions-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.session-group {
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.session-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px;
+  background: var(--bg-light);
+  cursor: pointer;
+  user-select: none;
+}
+
+.session-header h4 {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.session-summary-title small {
+  font-size: 10px;
+  color: var(--text-light);
+  font-family: monospace;
+}
+
+.session-event-count {
+  background: var(--secondary-color);
+  color: white;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.event-actions {
+  margin-top: 12px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-color);
+  display: flex;
+  justify-content: flex-end;
 }
