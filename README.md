@@ -167,6 +167,15 @@ package.json                  # Project dependencies
 - Optimized storage operations
 - Lazy-loaded UI components
 
+### Prediction Engine Scoring V2
+
+To improve prediction confidence within forms, the scoring model was updated to enforce "Hard Form Dominance." This replaces a simple additive boost with a more aggressive multiplicative approach.
+
+-   **Multiplicative Dominance**: If the user is active in a form, the `totalScore` of a `'primary'` action (e.g., a submit button) within that same form is multiplied by `1.25`.
+-   **Outside-Form Penalty**: Any action candidate outside the user's active form has its `totalScore` multiplied by `0.75`.
+
+This creates exponential score separation, ensuring that once a user commits to a form, the logical next action within that form is heavily favored, leading to higher confidence scores and more accurate predictions.
+
 ## Configuration
 
 ### Modifying Recording Behavior
