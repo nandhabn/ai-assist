@@ -1,0 +1,60 @@
+#flow-recorder-flyout {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  width: 300px;
+  background-color: #fff;
+  border: 1px solid #ccc;
+  border-radius: 8px;
+  box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+  z-index: 2147483647;
+  font-family: sans-serif;
+  font-size: 14px;
+}
+
+#flyout-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px;
+  background-color: #f7f7f7;
+  border-bottom: 1px solid #ccc;
+  border-top-left-radius: 8px;
+  border-top-right-radius: 8px;
+  cursor: move;
+}
+
+#flyout-header h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+#flyout-toggle {
+  background: none;
+  border: none;
+  font-size: 20px;
+  cursor: pointer;
+}
+
+#flyout-content {
+  padding: 10px;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+#flyout-content button {
+  display: block;
+  width: 100%;
+  padding: 8px;
+  margin-bottom: 5px;
+  background-color: #eee;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  text-align: left;
+  cursor: pointer;
+}
+
+#flyout-content button:hover {
+  background-color: #e0e0e0;
+}

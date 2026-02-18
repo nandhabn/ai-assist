@@ -193,3 +193,14 @@ code {
   display: flex;
   justify-content: flex-end;
 }
+
+.session-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.event-item.replaying {
+  border-left: 3px solid var(--primary-color);
+  background: var(--primary-light);
+}

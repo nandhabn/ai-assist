@@ -215,7 +215,7 @@ const flow = analyzeEventFlow(events);
 ```javascript
 import { prepareFlowForAI } from "@/utils/aiFormatter.js";
 
-const aiData = prepareFlowForAI(flowData);
+const aiData = await prepareFlowForAI(flowData);
 // Returns: { summary, structuredPrompt, metadata, ... }
 ```
 

@@ -4,26 +4,34 @@ import {
   extractAPIInfo,
   identifyTestPoints,
 } from "./flowAnalyzer";
-import type { RecordedEvent, AIPromptResult } from "@/types/index";
+import type { RecordedEvent } from "../types/index";
 
-export function prepareFlowForAI(flowData: {
+/**
+ * A backend-agnostic package containing all processed data for a recorded flow.
+ * This is the payload that will be sent to the secure backend proxy.
+ */
+export interface FlowDataPackage {
+  summary: string;
+  flowGraph: any;
+  forms: any[];
+  apis: any[];
+  testPoints: any[];
+  metadata: Record<string, any>;
+  events: RecordedEvent[];
+}
+
+/**
+ * Analyzes and packages recorded event data into a structured, backend-agnostic format.
+ * It no longer calls an AI service directly.
+ * @param flowData The raw recorded flow data.
+ * @returns A structured package of flow data, or null if no data is present.
+ */
+export function prepareFlowData(flowData: {
   sessionId?: string;
   events?: RecordedEvent[];
-}): AIPromptResult & {
-  flowGraph?: any;
-  forms?: any[];
-  apis?: any[];
-  testPoints?: any[];
-} {
+}): FlowDataPackage | null {
   if (!flowData || !flowData.events || flowData.events.length === 0) {
-    return {
-      summary: "No recorded events",
-      structuredPrompt: "",
-      metadata: {
-        eventCount: 0,
-        hasData: false,
-      },
-    } as any;
+    return null;
   }
 
   const events = flowData.events;
@@ -33,14 +41,6 @@ export function prepareFlowForAI(flowData: {
   const testPoints = identifyTestPoints(events);
 
   const summary = generateSummary(events, flowGraph, forms, apis);
-
-  const structuredPrompt = generateStructuredPrompt(
-    events,
-    flowGraph,
-    forms,
-    apis,
-    testPoints,
-  );
 
   const metadata = {
     sessionId: flowData.sessionId,
@@ -55,13 +55,13 @@ export function prepareFlowForAI(flowData: {
 
   return {
     summary,
-    structuredPrompt,
-    metadata,
     flowGraph,
     forms,
     apis,
     testPoints,
-  } as any;
+    metadata,
+    events, // Include the raw events for the backend to process
+  };
 }
 
 function generateSummary(
@@ -111,107 +111,9 @@ function generateSummary(
   return lines.join("\n");
 }
 
-function generateStructuredPrompt(
-  events: any[],
-  flowGraph: any,
-  forms: any[],
-  apis: any[],
-  testPoints: any[],
-): string {
-  const sections: string[] = [];
 
-  sections.push("# AI Test Generation Context\n");
 
-  sections.push("## User Flow\n");
-  sections.push("The user performed the following actions:\n");
-
-  const actionEvents = events.filter(
-    (e) =>
-      e.actionType === "click" ||
-      e.actionType === "input" ||
-      e.actionType === "submit",
-  );
-
-  actionEvents.slice(0, 20).forEach((event: any, idx: number) => {
-    const meta = event.elementMetadata || {};
-    const label = meta.innerText
-      ? `"${meta.innerText.substring(0, 30)}"`
-      : `${meta.tag}`;
-
-    sections.push(`${idx + 1}. ${event.actionType.toUpperCase()} on ${label}`);
-
-    if (event.selector?.css) {
-      sections.push(`   - Selector: ${event.selector.css}`);
-    }
-  });
-
-  if (actionEvents.length > 20) {
-    sections.push(`... and ${actionEvents.length - 20} more actions`);
-  }
-
-  sections.push("");
-
-  if (apis.length > 0) {
-    sections.push("## API Endpoints Called\\n");
-
-    const apiGroups: Record<string, { count: number; statuses: Set<number> }> =
-      {};
-    apis.forEach((api: any) => {
-      const key = `${api.method} ${api.endpoint}`;
-      if (!apiGroups[key]) apiGroups[key] = { count: 0, statuses: new Set() };
-      apiGroups[key].count++;
-      apiGroups[key].statuses.add(api.status);
-    });
-
-    Object.entries(apiGroups).forEach(([endpoint, info]) => {
-      const statuses = [...info.statuses].join(", ");
-      sections.push(`- ${endpoint} (${info.count}x, status: ${statuses})`);
-    });
-
-    sections.push("");
-  }
-
-  if (forms.length > 0) {
-    sections.push("## Forms Detected\\n");
-
-    forms.forEach((form: any, idx: number) => {
-      sections.push(`### Form ${idx + 1}`);
-      form.fields.forEach((field: any) => {
-        sections.push(`- ${field.name} (${field.type || "text"})`);
-      });
-      sections.push("");
-    });
-  }
-
-  if (testPoints.length > 0) {
-    sections.push("## Recommended Test Coverage\\n");
-
-    testPoints.forEach((point: any) => {
-      sections.push(`### ${point.type.replace(/_/g, " ").toUpperCase()}`);
-      sections.push(`Priority: ${point.priority}`);
-      sections.push(`Description: ${point.description}`);
-      sections.push(`Suggestion: ${point.suggestion}`);
-      sections.push("");
-    });
-  }
-
-  sections.push("## Code Generation Guidelines\\n");
-  sections.push("Based on this user flow, generate:\n");
-  sections.push(
-    "1. **Cypress Test Suite**: E2E tests that replicate this flow",
-  );
-  sections.push("2. **Playwright Tests**: Cross-browser version of the flow");
-  sections.push("3. **API Test Scenarios**: Tests for each API endpoint");
-  sections.push("4. **Edge Cases**: Missing validation, negative cases");
-  sections.push(
-    "5. **Error Scenarios**: Network failures, timeouts, error states",
-  );
-  sections.push("6. **Auth Scenarios**: Session expiration, token refresh");
-
-  return sections.join("\n");
-}
-
-function calculateDuration(events) {
+function calculateDuration(events: RecordedEvent[]): number {
   if (events.length === 0) return 0;
 
   const first = events[0].timestamp;
@@ -220,12 +122,14 @@ function calculateDuration(events) {
   return last - first;
 }
 
-export function exportFlowAsMarkdown(flowData) {
-  const { summary, structuredPrompt, metadata } = flowData;
+export function exportFlowAsMarkdown(flowData: FlowDataPackage) {
+  if (!flowData) return "No data to export.";
+  
+  const { summary, metadata } = flowData;
 
   const lines = [];
 
-  lines.push(`# AI Flow Recorder Report - ${new Date().toISOString()}\n`);
+  lines.push(`# AI Flow Recorder Report - ${new Date(metadata.timestamp).toISOString()}\n`);
 
   lines.push(`**Session ID**: ${metadata.sessionId}`);
   lines.push(`**Duration**: ${Math.round(metadata.duration / 1000)}s`);
@@ -236,12 +140,15 @@ export function exportFlowAsMarkdown(flowData) {
   lines.push(summary);
 
   lines.push("\n---\n");
+  lines.push("### Raw Events Summary\n");
+  lines.push("```json");
+  lines.push(JSON.stringify(flowData.events.slice(0, 10).map(e => ({ action: e.actionType, url: e.url, selector: e.selector?.css })), null, 2));
+  lines.push("```");
 
-  lines.push(structuredPrompt);
 
   return lines.join("\n");
 }
 
-export function exportFlowAsJSON(flowData) {
+export function exportFlowAsJSON(flowData: FlowDataPackage) {
   return JSON.stringify(flowData, null, 2);
 }

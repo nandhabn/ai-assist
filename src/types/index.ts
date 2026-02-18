@@ -37,6 +37,14 @@ export interface ElementMetadata {
   dataTestId?: string;
   parentForm?: string | null;
   value?: string;
+  boundingBox?: {
+    top: number;
+    right: number;
+    bottom: number;
+    left: number;
+    width: number;
+    height: number;
+  };
 }
 
 export interface Selector {

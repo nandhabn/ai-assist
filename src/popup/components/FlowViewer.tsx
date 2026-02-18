@@ -37,6 +37,9 @@ export default function FlowViewer({ eventCount }: FlowViewerProps) {
   );
   const [loading, setLoading] = React.useState(false);
   const [expandedEvent, setExpandedEvent] = React.useState<string | null>(null); // sessionId_index
+  const [replayingSession, setReplayingSession] = React.useState<string | null>(
+    null,
+  );
 
   React.useEffect(() => {
     loadEvents();
@@ -109,6 +112,58 @@ export default function FlowViewer({ eventCount }: FlowViewerProps) {
     });
   };
 
+  const handleReplaySession = async (sessionId: string) => {
+    const sessionEvents = sessions[sessionId];
+    if (!sessionEvents || sessionEvents.length === 0) {
+      alert("No events to replay in this session.");
+      return;
+    }
+
+    setReplayingSession(sessionId);
+
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      if (tabs[0] && tabs[0].id) {
+        const tabId = tabs[0].id;
+
+        const replayNextEvent = async (index: number) => {
+          if (index >= sessionEvents.length) {
+            setReplayingSession(null);
+            alert("Session replay finished!");
+            return;
+          }
+
+          const event = sessionEvents[index];
+          setExpandedEvent(`${sessionId}_${index}`);
+
+          chrome.tabs.sendMessage(
+            tabId,
+            { action: "REDO_ACTION", event },
+            (response) => {
+              if (chrome.runtime.lastError || !response?.success) {
+                alert(
+                  `Failed to replay action: ${
+                    chrome.runtime.lastError?.message ||
+                    response?.error ||
+                    "Unknown error"
+                  }`,
+                );
+                setReplayingSession(null);
+                return;
+              }
+              // Wait a bit before the next action
+              setTimeout(() => replayNextEvent(index + 1), 1000);
+            },
+          );
+        };
+
+        replayNextEvent(0);
+      } else {
+        alert("Could not find active tab to replay session on.");
+        setReplayingSession(null);
+      }
+    });
+  };
+
   const getEventIcon = (actionType: FlowEvent["actionType"]) => {
     const icons = {
       click: "🖱",
@@ -173,9 +228,21 @@ export default function FlowViewer({ eventCount }: FlowViewerProps) {
                 </h4>
                 <small>{sessionId}</small>
               </div>
-              <span className="session-event-count">
-                {sessions[sessionId].length} events
-              </span>
+              <div className="session-controls">
+                <span className="session-event-count">
+                  {sessions[sessionId].length} events
+                </span>
+                <button
+                  className="btn btn-sm btn-primary"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    handleReplaySession(sessionId);
+                  }}
+                  disabled={replayingSession === sessionId}
+                >
+                  {replayingSession === sessionId ? "Replaying..." : "▶️ Replay Session"}
+                </button>
+              </div>
             </summary>
             <div className="events-list">
               {sessions[sessionId].map((event, index) => {
@@ -184,7 +251,11 @@ export default function FlowViewer({ eventCount }: FlowViewerProps) {
                 return (
                   <div
                     key={eventKey}
-                    className={`event-item ${isExpanded ? "expanded" : ""}`}
+                    className={`event-item ${isExpanded ? "expanded" : ""} ${
+                      replayingSession === sessionId && isExpanded
+                        ? "replaying"
+                        : ""
+                    }`}
                   >
                     <div
                       className="event-header"

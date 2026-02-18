@@ -19,52 +19,219 @@ import {
   setRecordingStatus,
 } from "@/utils/storage";
 import { ACTION_TYPES } from "@/types/index";
+import { createFlyout } from "./flyout";
+import "./flyout.css";
+import { generatePredictions, PageContext, ActionCandidate, Form } from "@/utils/predictionEngine";
+
+
+// PART 1: Store last recorded event
+let lastRecordedEvent: (any & { boundingBox?: DOMRect }) | null = null;
+
+
+// PART 2: Implement robust page intent inference
+function inferPageIntent(): string {
+    const scores = {
+        authentication: 0.0,
+        search: 0.0,
+        checkout: 0.0,
+    };
+
+    // --- Authentication Signals (Language Agnostic) ---
+    const passwordFields = Array.from(document.querySelectorAll('input[type="password"]'));
+    const visiblePasswordFields = passwordFields.filter(el => (el as HTMLElement).offsetWidth > 0 && (el as HTMLElement).offsetHeight > 0);
+    if (visiblePasswordFields.length > 0) {
+        scores.authentication += 0.6; // Strong signal
+    }
+
+    document.querySelectorAll('form').forEach(form => {
+        const hasPasswordField = form.querySelector('input[type="password"]') !== null;
+        if (!hasPasswordField) return;
+
+        const hasTextField = form.querySelector('input[type="text"], input[type="email"], input[type="tel"]') !== null;
+        const hasSubmit = form.querySelector('button, input[type="submit"], [role="button"]') !== null;
+
+        if (hasTextField && hasSubmit) {
+            scores.authentication += 0.3; // Very strong signal for a complete login form
+        }
+    });
+
+    // --- Search Signals ---
+    if (document.querySelector('form[action*="/search"], form[id*="search"], form[class*="search"]')) {
+        scores.search += 0.4;
+    }
+    if (document.querySelector('input[type="search"], input[name="q"], input[name="s"], input[id*="search"]')) {
+        scores.search += 0.4;
+    }
+
+    // --- Checkout Signals (with some i18n) ---
+    const checkoutKeywords = ['cart', 'checkout', 'payment', 'basket', 'rechnung', 'kasse', 'panier'];
+    try {
+        const pageText = document.body.innerText.toLowerCase();
+        for (const keyword of checkoutKeywords) {
+            if (pageText.includes(keyword)) {
+                scores.checkout += 0.1;
+            }
+        }
+    } catch(e) { /* document.body may not be ready */ }
+    
+    if (document.querySelector('[class*="checkout"], [id*="checkout"], [class*="cart"]')) {
+        scores.checkout += 0.4;
+    }
+    
+    // --- Ranking and Confidence Check ---
+    const rankedIntents = Object.entries(scores)
+        .filter(([, score]) => score > 0)
+        .sort(([, a], [, b]) => b - a);
+
+    if (rankedIntents.length === 0) {
+        return 'unknown';
+    }
+
+    const [topIntent, topScore] = rankedIntents[0];
+    const secondScore = rankedIntents.length > 1 ? rankedIntents[1][1] : 0;
+    
+    // The top score must be significantly higher than the next, or be very high itself.
+    if (topScore - secondScore < 0.2 && topScore < 0.5) {
+        return 'unknown';
+    }
+
+    return topIntent;
+}
+
+// Updated context builder for debugging
+function buildPageContextForDebugging(): PageContext {
+    const visibleActions: ActionCandidate[] = [];
+    document.querySelectorAll('a, button, [role="button"], input[type="submit"]').forEach(el => {
+        const element = el as HTMLElement;
+
+        // OBJECTIVE 1 FIX: Exclude extension's own UI from the context.
+        if (element.closest('[data-flow-recorder]')) {
+            return;
+        }
+
+        const rect = element.getBoundingClientRect();
+        if (rect.width > 0 && rect.height > 0 && (element.innerText || element.getAttribute('aria-label') || '').trim() !== '') {
+            // TASK 2 FIX: Find the parent form for each candidate and add its selector.
+            const parentForm = element.closest('form');
+
+            visibleActions.push({
+                label: (element.innerText || element.getAttribute('aria-label') || '').trim(),
+                selector: generateCSSSelector(element),
+                role: (element.tagName === 'BUTTON' || element.getAttribute('role') === 'button' || element.getAttribute('type') === 'submit') ? 'primary' : 'link',
+                boundingBox: rect,
+                confidenceScore: 0.7,
+                formSelector: parentForm
+                  ? generateCSSSelector(parentForm)
+                  : undefined,
+            });
+        }
+    });
+
+    const forms: Form[] = [];
+    document.querySelectorAll('form').forEach(form => {
+        forms.push({
+            selector: generateCSSSelector(form),
+            completionScore: 0,
+            fields: [],
+        });
+    });
+
+    return {
+        pageIntent: inferPageIntent(),
+        visibleActions: visibleActions.slice(0, 50),
+        forms,
+        lastUserAction: lastRecordedEvent ? {
+            type: lastRecordedEvent.actionType,
+            selector: lastRecordedEvent.selector.css,
+            formSelector: lastRecordedEvent.elementMetadata?.parentForm,
+        } : null,
+        lastActionRect: lastRecordedEvent ? lastRecordedEvent.boundingBox : null,
+        viewport: {
+            width: document.documentElement.clientWidth,
+            height: document.documentElement.clientHeight,
+        }
+    };
+}
+
 
 let sessionId: string | null = null;
 let isRecordingActive = false;
 const OVERLAY_ID = "__flow_recorder_overlay__";
+const FLYOUT_ID = "flow-recorder-flyout";
 let cleanupRouteDetector: (() => void) | null = null;
 let cleanupFetchInterceptor: (() => void) | null = null;
 let cleanupXHRInterceptor: (() => void) | null = null;
 
+// if (process.env.NODE_ENV === "development") {
+  console.log('[FlowRecorder] Running in development mode')
+  
+  // Refactored: Use a getter for live updates, preventing stale references.
+  Object.defineProperty(window, "__lastRecordedEvent", {
+    get() {
+      return lastRecordedEvent;
+    },
+    configurable: true, // Allows re-definition if the script is re-injected
+  });
+
+  // @ts-ignore
+  window.__debugContextBuilder = () => {
+    const context = buildPageContextForDebugging();
+    console.log('[FlowRecorder] Page Context:', context);
+    const predictions = generatePredictions(context);
+    console.log('[FlowRecorder] Predictions:', predictions);
+    return predictions;
+  }
+// }
+
 async function init() {
-  sessionId = await getOrCreateSessionId();
   isRecordingActive = await isRecording();
+  sessionId = await getOrCreateSessionId();
 
   chrome.runtime.onMessage.addListener(handleMessage as any);
 
+  // Always-on interaction capture for prediction engine
+  document.addEventListener("click", captureInteraction, true);
+  document.addEventListener("input", captureInteraction, true);
+  document.addEventListener("focusin", captureInteraction, true);
+
+  // If recording was already active from a previous session, attach other listeners
   if (isRecordingActive) {
-    startRecording();
+    attachRecordingListeners();
   }
 }
 
-async function handleMessage(request: any, sender: any, sendResponse: any) {
-  switch (request.action) {
-    case "START_RECORDING":
-      await startRecording();
-      sendResponse({ success: true });
-      break;
+function handleMessage(request: any, sender: any, sendResponse: any) {
+  (async () => {
+    switch (request.action) {
+      case "START_RECORDING":
+        await startRecording();
+        sendResponse({ success: true });
+        break;
 
-    case "STOP_RECORDING":
-      await stopRecording();
-      sendResponse({ success: true });
-      break;
+      case "STOP_RECORDING":
+        await stopRecording();
+        sendResponse({ success: true });
+        break;
 
-    case "GET_SESSION_ID":
-      sendResponse({ sessionId });
-      break;
+      case "GET_SESSION_ID":
+        sendResponse({ sessionId });
+        break;
 
-    case "IS_RECORDING":
-      sendResponse({ isRecording: isRecordingActive });
-      break;
+      case "IS_RECORDING":
+        sendResponse({ isRecording: isRecordingActive });
+        break;
 
-    case "REDO_ACTION":
-      handleRedoAction(request.event).then(sendResponse);
-      return true; // Indicates that the response is sent asynchronously
+      case "REDO_ACTION":
+        const response = await handleRedoAction(request.event);
+        sendResponse(response);
+        break;
 
-    default:
-      sendResponse({ error: "Unknown action" });
-  }
+      default:
+        sendResponse({ error: "Unknown action" });
+    }
+  })();
+
+  return true; // Indicates that the response is sent asynchronously
 }
 
 async function handleRedoAction(
@@ -115,23 +282,28 @@ async function handleRedoAction(
 
 async function startRecording() {
   if (isRecordingActive) return;
-
+  
   isRecordingActive = true;
   sessionId = await createNewSessionId();
   await setRecordingStatus(true);
+  
+  attachRecordingListeners();
+  
+  console.log("[FlowRecorder] Recording started");
+}
+
+function attachRecordingListeners() {
+  // Interaction listeners are now always on. This function only handles
+  // recording-specific setup.
+  if (!isRecordingActive) return;
 
   showRecordingOverlay();
+  analyzePageAndShowFlyout();
 
-  setupClickListener();
-  setupInputListener();
-  setupSubmitListener();
-
+  // Attach listeners that should ONLY run during recording
   cleanupRouteDetector = detectRouteChanges(handleRouteChange as any);
-
   cleanupFetchInterceptor = overrideFetch(handleAPICall as any);
   cleanupXHRInterceptor = overrideXHR(handleAPICall as any);
-
-  console.log("[FlowRecorder] Recording started");
 }
 
 async function stopRecording() {
@@ -140,11 +312,23 @@ async function stopRecording() {
   isRecordingActive = false;
   await setRecordingStatus(false);
 
-  removeRecordingOverlay();
+  detachRecordingListeners();
 
-  document.removeEventListener("click", handleClickEvent as any, true);
-  document.removeEventListener("input", handleInputEvent as any, true);
-  document.removeEventListener("submit", handleSubmitEvent as any, true);
+  console.log("[FlowRecorder] Recording stopped");
+}
+
+function detachRecordingListeners() {
+  // Interaction listeners are always on. This function only handles
+  // recording-specific cleanup.
+  removeRecordingOverlay();
+  const flyout = document.getElementById(FLYOUT_ID);
+  if (flyout) {
+    flyout.remove();
+  }
+
+  // document.removeEventListener("click", handleInteraction, true);
+  // document.removeEventListener("input", handleInteraction, true);
+  // document.removeEventListener("focusin", handleInteraction, true);
 
   if (cleanupRouteDetector) {
     cleanupRouteDetector();
@@ -160,122 +344,135 @@ async function stopRecording() {
     cleanupXHRInterceptor();
     cleanupXHRInterceptor = null;
   }
-
-  console.log("[FlowRecorder] Recording stopped");
 }
 
-function setupClickListener() {
-  document.addEventListener("click", handleClickEvent as any, true);
-}
+function analyzePageAndShowFlyout() {
+  if (document.getElementById(FLYOUT_ID)) return;
 
-const handleClickEvent = async (event: Event) => {
-  if (!isRecordingActive) return;
+  const flyout = createFlyout();
+  const content = flyout.querySelector("#flyout-content");
+  if (!content) return;
 
-  let elementToRecord: HTMLElement | null = event.target as HTMLElement;
+  content.innerHTML = ""; // Clear "Analyzing..." message
 
-  // Traverse up the DOM to find the first "trackable" element
-  while (elementToRecord) {
-    if (shouldTrackElement(elementToRecord)) {
-      break; // Found our element
+  const actions = [];
+
+  // Find buttons
+  document.querySelectorAll("button, a[role='button']").forEach((el) => {
+    const element = el as HTMLElement;
+    const text = element.innerText.trim();
+    if (text) {
+      actions.push({
+        label: `Click "${text}"`,
+        element,
+        actionType: ACTION_TYPES.CLICK,
+      });
     }
-    // Stop traversal at the body or if there's no parent
-    if (
-      !elementToRecord.parentElement ||
-      elementToRecord.parentElement === document.body
-    ) {
-      elementToRecord = null;
-      break;
-    }
-    elementToRecord = elementToRecord.parentElement;
+  });
+
+  // Find forms and suggest submitting
+  document.querySelectorAll("form").forEach((form) => {
+    actions.push({
+      label: `Submit form#${form.id || "(no id)"}`,
+      element: form,
+      actionType: ACTION_TYPES.SUBMIT,
+    });
+  });
+
+  if (actions.length === 0) {
+    content.innerHTML = "<p>No suggested actions found.</p>";
+    return;
   }
 
-  if (!elementToRecord) return; // Nothing to record
-
-  const eventData = {
-    sessionId,
-    timestamp: Date.now(),
-    url: sanitizeURL(window.location.href),
-    route: getCurrentRoute(),
-    actionType: ACTION_TYPES.CLICK,
-    elementMetadata: extractElementMetadata(elementToRecord),
-    selector: {
-      css: generateCSSSelector(elementToRecord),
-      xpath: generateXPath(elementToRecord),
-    },
-  };
-
-  await saveEvent(eventData as any);
-
-  chrome.runtime
-    .sendMessage({ action: "EVENT_RECORDED", event: eventData })
-    .catch(() => {});
-};
-
-function setupInputListener() {
-  document.addEventListener("input", handleInputEvent as any, true);
+  actions.forEach((action) => {
+    const button = document.createElement("button");
+    button.textContent = action.label;
+    button.onclick = () => {
+      const event = {
+        actionType: action.actionType,
+        selector: {
+          css: generateCSSSelector(action.element),
+        },
+      };
+      handleRedoAction(event);
+    };
+    content.appendChild(button);
+  });
 }
 
-const handleInputEvent = async (event: Event) => {
-  if (!isRecordingActive) return;
+const INTERACTIVE_ELEMENTS = "input, button, a, textarea, select";
 
-  const target = event.target as HTMLInputElement | HTMLTextAreaElement;
-  const tag = (target.tagName || "").toLowerCase();
-  if (tag !== "input" && tag !== "textarea") return;
+const captureInteraction = async (event: Event) => {
+    const target = event.target as HTMLElement;
 
-  const eventData = {
-    sessionId,
-    timestamp: Date.now(),
-    url: sanitizeURL(window.location.href),
-    route: getCurrentRoute(),
-    actionType: ACTION_TYPES.INPUT,
-    elementMetadata: {
-      ...extractElementMetadata(target),
-      value: target.value,
-      parentForm: getParentForm(target)?.id || null,
-    },
-    selector: {
-      css: generateCSSSelector(target),
-      xpath: generateXPath(target),
-    },
-  };
+    // Ignore events on the overlay, which should only exist during recording
+    if (!target || target.closest(`#${OVERLAY_ID}`)) {
+        return;
+    }
 
-  await saveEvent(eventData as any);
+    // 1. Resolve correct interactive element
+    let interactiveElement: HTMLElement | null = target.closest(INTERACTIVE_ELEMENTS);
+    
+    if (!interactiveElement) {
+        // For focusin, the event target can sometimes be the element itself.
+        if (event.type === 'focusin' && target.matches(INTERACTIVE_ELEMENTS)) {
+            interactiveElement = target;
+        } else {
+            return; // Not an element we want to track
+        }
+    }
 
-  chrome.runtime
-    .sendMessage({ action: "EVENT_RECORDED", event: eventData })
-    .catch(() => {});
-};
+    // 2. Ignore invisible elements and call getBoundingClientRect() once
+    const rect = interactiveElement.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) {
+        return; // Element is not visible
+    }
+    
+    // 3. Store bounding box as plain serializable object
+    const boundingBox = {
+        x: rect.x, y: rect.y, width: rect.width, height: rect.height,
+        top: rect.top, right: rect.right, bottom: rect.bottom, left: rect.left,
+    };
 
-function setupSubmitListener() {
-  document.addEventListener("submit", handleSubmitEvent as any, true);
-}
+    const actionType = event.type === 'focusin' ? 'focus' : event.type;
+    
+    // TASK 1 FIX: Use closest() to find the parent form and store its selector.
+    const parentForm = interactiveElement.closest('form');
 
-const handleSubmitEvent = async (event: Event) => {
-  if (!isRecordingActive) return;
+    // 4. Create event data object
+    const eventData = {
+        sessionId,
+        timestamp: Date.now(),
+        url: sanitizeURL(window.location.href),
+        route: getCurrentRoute(),
+        actionType: actionType,
+        elementMetadata: {
+            ...extractElementMetadata(interactiveElement),
+            value: (interactiveElement as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement).value,
+            // Ensure the property name is 'parentForm' for the context builder.
+            parentForm: parentForm
+              ? generateCSSSelector(parentForm)
+              : undefined,
+        },
+        selector: {
+            css: generateCSSSelector(interactiveElement),
+            xpath: generateXPath(interactiveElement),
+        },
+        boundingBox,
+    };
 
-  const target = event.target as HTMLElement;
+    // 5. Always assign to module-level lastRecordedEvent for the prediction engine
+    lastRecordedEvent = eventData;
 
-  const eventData = {
-    sessionId,
-    timestamp: Date.now(),
-    url: sanitizeURL(window.location.href),
-    route: getCurrentRoute(),
-    actionType: ACTION_TYPES.SUBMIT,
-    elementMetadata: {
-      ...extractElementMetadata(target),
-      formId: (target as HTMLElement).id || null,
-    },
-    selector: {
-      css: generateCSSSelector(target),
-      xpath: generateXPath(target),
-    },
-  };
-
-  await saveEvent(eventData as any);
-
-  chrome.runtime
-    .sendMessage({ action: "EVENT_RECORDED", event: eventData })
-    .catch(() => {});
+    // 6. Conditionally persist event only if recording is active
+    if (isRecordingActive) {
+        console.log(`[FlowRecorder] Interaction Recorded:`, {
+            action: actionType,
+            element: interactiveElement
+        });
+        await saveEvent(eventData as any);
+        chrome.runtime.sendMessage({ action: "EVENT_RECORDED", event: eventData }).catch(() => {});
+    }
 };
 
 const handleRouteChange = async (routeInfo: any) => {
@@ -380,6 +577,10 @@ function showRecordingOverlay() {
   if (document.getElementById(OVERLAY_ID)) return;
   const overlay = document.createElement("div");
   overlay.id = OVERLAY_ID;
+
+  // Add a stable attribute to identify this as part of the extension's UI
+  overlay.dataset.flowRecorder = "true";
+  
   overlay.style.position = "fixed";
   overlay.style.top = "0";
   overlay.style.left = "0";
