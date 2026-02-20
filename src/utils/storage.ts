@@ -3,6 +3,7 @@ const STORAGE_KEYS = {
   SESSION_ID: "flowRecorder_sessionId",
   IS_RECORDING: "flowRecorder_isRecording",
   SESSIONS: "flowRecorder_sessions",
+  LAST_USER_ACTION: "flowRecorder_lastUserAction",
 } as const;
 
 export async function getOrCreateSessionId(): Promise<string> {
@@ -35,6 +36,10 @@ export async function saveEvent(event: any): Promise<void> {
   events.push(event);
 
   await chrome.storage.local.set({ [STORAGE_KEYS.EVENTS]: events });
+}
+
+export async function saveLastUserAction(event: any): Promise<void> {
+  await chrome.storage.local.set({ [STORAGE_KEYS.LAST_USER_ACTION]: event });
 }
 
 export async function getEvents(): Promise<any[]> {
