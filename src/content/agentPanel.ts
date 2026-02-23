@@ -13,6 +13,9 @@ import type {
 
 type ExecuteCallback = (prediction: RankedPrediction) => void;
 type RecalculateCallback = () => void;
+type AutofillDataGenerator = (
+  fields: { name: string; id: string; type: string; placeholder: string; labelText: string; ariaLabel: string; options?: string[] }[],
+) => Promise<Record<string, string>>;
 
 // Re-exporting for content.ts to use
 export type { PredictionResult, RankedPrediction };
@@ -129,6 +132,7 @@ const PANEL_ID = "flow-agent-panel-host";
 let shadowRoot: ShadowRoot | null = null;
 let onExecute: ExecuteCallback | null = null;
 let onRecalculate: RecalculateCallback | null = null;
+let onGenerateAutofillData: AutofillDataGenerator | null = null;
 const originalStyles = new WeakMap<
   HTMLElement,
   { outline: string; outlineOffset: string }
@@ -142,335 +146,15 @@ let currentFormFields:
       placeholder: string;
       labelText: string;
       ariaLabel: string;
+      options?: string[];
     }[]
   | null = null;
 let lastConfidence = 0.0;
 
-// Random data generators
-const FIRST_NAMES = [
-  "Alex",
-  "Jordan",
-  "Taylor",
-  "Morgan",
-  "Casey",
-  "Riley",
-  "Avery",
-  "Quinn",
-  "Sage",
-  "River",
-  "Blake",
-  "Cameron",
-  "Dakota",
-  "Hayden",
-  "Jamie",
-  "Kai",
-  "Logan",
-  "Parker",
-  "Reese",
-  "Skylar",
-];
-const LAST_NAMES = [
-  "Anderson",
-  "Brown",
-  "Davis",
-  "Garcia",
-  "Harris",
-  "Jackson",
-  "Johnson",
-  "Jones",
-  "Lee",
-  "Martinez",
-  "Miller",
-  "Moore",
-  "Robinson",
-  "Smith",
-  "Taylor",
-  "Thomas",
-  "Thompson",
-  "Walker",
-  "White",
-  "Williams",
-];
-const EMAIL_DOMAINS = [
-  "example.com",
-  "test.com",
-  "demo.org",
-  "sample.net",
-  "mock.io",
-  "fake.co",
-  "dummy.dev",
-  "placeholder.me",
-];
-const TITLES = ["Mr", "Mrs", "Miss", "Ms", "Dr", "Prof", "Sir", "Madam"];
+// No hardcoded data generators — autofill data is now provided
+// dynamically via the AutofillDataGenerator callback (AI-powered).
 
-function randomChoice<T>(array: readonly T[]): T {
-  return array[Math.floor(Math.random() * array.length)];
-}
 
-function randomString(length: number = 8): string {
-  const chars =
-    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-  let result = "";
-  for (let i = 0; i < length; i++) {
-    result += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return result;
-}
-
-function generateRandomFirstName(): string {
-  return randomChoice(FIRST_NAMES);
-}
-
-function generateRandomLastName(): string {
-  return randomChoice(LAST_NAMES);
-}
-
-function generateRandomEmail(): string {
-  const first = generateRandomFirstName().toLowerCase();
-  const last = generateRandomLastName().toLowerCase();
-  const num = Math.floor(Math.random() * 1000);
-  const domain = randomChoice(EMAIL_DOMAINS);
-  return `${first}.${last}${num}@${domain}`;
-}
-
-function generateRandomPassword(): string {
-  const length = Math.floor(Math.random() * 8) + 12; // 12-20 characters
-  const upper = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-  const lower = "abcdefghijklmnopqrstuvwxyz";
-  const numbers = "0123456789";
-  const special = "!@#$%^&*";
-
-  let password = "";
-  password += randomChoice(upper.split(""));
-  password += randomChoice(lower.split(""));
-  password += randomChoice(numbers.split(""));
-  password += randomChoice(special.split(""));
-
-  const allChars = upper + lower + numbers + special;
-  for (let i = password.length; i < length; i++) {
-    password += randomChoice(allChars.split(""));
-  }
-
-  // Shuffle the password
-  return password
-    .split("")
-    .sort(() => Math.random() - 0.5)
-    .join("");
-}
-
-function generateRandomPhone(): string {
-  const countryCode = Math.random() > 0.5 ? "+1" : "+44";
-  const area = Math.floor(Math.random() * 900) + 100;
-  const exchange = Math.floor(Math.random() * 900) + 100;
-  const number = Math.floor(Math.random() * 9000) + 1000;
-  return `${countryCode}-${area}-${exchange}-${number}`;
-}
-
-function generateRandomDate(): string {
-  const start = new Date(1970, 0, 1);
-  const end = new Date(2000, 11, 31);
-  const randomTime =
-    start.getTime() + Math.random() * (end.getTime() - start.getTime());
-  const date = new Date(randomTime);
-  return date.toISOString().split("T")[0];
-}
-
-function generateSmartData(
-  fields: {
-    name: string;
-    id: string;
-    type: string;
-    placeholder: string;
-    labelText: string;
-    ariaLabel: string;
-  }[],
-): Record<string, string> {
-  const data: Record<string, string> = {};
-
-  // Helper to normalize text for matching
-  const normalize = (str: string): string =>
-    (str || "").toLowerCase().replace(/[\s_-]/g, "");
-
-  for (const field of fields) {
-    const normalizedName = normalize(field.name);
-    const normalizedId = normalize(field.id);
-    const normalizedPlaceholder = normalize(field.placeholder);
-    const normalizedLabel = normalize(field.labelText);
-    const normalizedAriaLabel = normalize(field.ariaLabel || "");
-    const type = field.type.toLowerCase();
-
-    // Determine the value based on field characteristics
-    let value = "";
-
-    // Match by type and various identifiers (include aria-label)
-    if (
-      type === "email" ||
-      normalizedName.includes("email") ||
-      normalizedId.includes("email") ||
-      normalizedPlaceholder.includes("email") ||
-      normalizedLabel.includes("email") ||
-      normalizedAriaLabel.includes("email")
-    ) {
-      value = generateRandomEmail();
-    } else if (
-      type === "password" ||
-      normalizedName.includes("password") ||
-      normalizedId.includes("password")
-    ) {
-      value = generateRandomPassword();
-    } else if (
-      type === "tel" ||
-      normalizedName.includes("phone") ||
-      normalizedName.includes("mobile") ||
-      normalizedId.includes("phone") ||
-      normalizedId.includes("mobile") ||
-      normalizedPlaceholder.includes("phone") ||
-      normalizedPlaceholder.includes("mobile") ||
-      normalizedAriaLabel.includes("phone") ||
-      normalizedAriaLabel.includes("mobile")
-    ) {
-      value = generateRandomPhone();
-    } else if (
-      normalizedName.includes("firstname") ||
-      normalizedName.includes("first") ||
-      normalizedId.includes("first") ||
-      normalizedPlaceholder.includes("first") ||
-      normalizedLabel.includes("first") ||
-      normalizedAriaLabel.includes("first")
-    ) {
-      value = generateRandomFirstName();
-    } else if (
-      normalizedName.includes("lastname") ||
-      normalizedName.includes("last") ||
-      normalizedId.includes("last") ||
-      normalizedPlaceholder.includes("last") ||
-      normalizedLabel.includes("last") ||
-      normalizedAriaLabel.includes("last")
-    ) {
-      value = generateRandomLastName();
-    } else if (
-      normalizedName.includes("name") ||
-      normalizedId.includes("name") ||
-      normalizedLabel.includes("name") ||
-      normalizedAriaLabel.includes("name")
-    ) {
-      // If it's a general "name" field, use full name
-      const firstName = generateRandomFirstName();
-      const lastName = generateRandomLastName();
-      value = `${firstName} ${lastName}`;
-    } else if (
-      normalizedName.includes("title") ||
-      normalizedId.includes("title") ||
-      normalizedPlaceholder.includes("title") ||
-      normalizedLabel.includes("title") ||
-      normalizedAriaLabel.includes("title")
-    ) {
-      value = randomChoice(TITLES);
-    } else if (
-      type === "number" ||
-      normalizedName.includes("number") ||
-      normalizedId.includes("number")
-    ) {
-      value = String(Math.floor(Math.random() * 10000) + 1000);
-    } else if (type === "date") {
-      value = generateRandomDate();
-    } else {
-      // Default: use placeholder or label as hint
-      if (normalizedPlaceholder || normalizedLabel) {
-        value = `Test ${randomString(6)}`;
-      } else {
-        value = randomString(8);
-      }
-    }
-
-    if (!value) continue;
-
-    // Add entries for all available identifiers to maximize matching chances
-    // This allows findBestFieldMatch to match by name, id, label, or placeholder
-    // Use normalized versions for better matching
-    const normalized = (str: string) =>
-      str.toLowerCase().replace(/[\s_-]/g, "");
-
-    if (field.name) {
-      data[field.name] = value;
-      // Also add normalized version
-      const normName = normalized(field.name);
-      if (normName !== field.name) data[normName] = value;
-    }
-    if (field.id && field.id !== field.name) {
-      data[field.id] = value;
-      const normId = normalized(field.id);
-      if (normId !== field.id && normId !== normalized(field.name))
-        data[normId] = value;
-    }
-    if (
-      field.labelText &&
-      field.labelText !== field.name &&
-      field.labelText !== field.id
-    ) {
-      // Use both original and normalized label text
-      data[field.labelText] = value;
-      const normLabel = normalized(field.labelText);
-      if (
-        normLabel !== field.labelText &&
-        normLabel !== normalized(field.name) &&
-        normLabel !== normalized(field.id)
-      ) {
-        data[normLabel] = value;
-      }
-    }
-    if (
-      field.placeholder &&
-      field.placeholder !== field.name &&
-      field.placeholder !== field.id &&
-      field.placeholder !== field.labelText
-    ) {
-      data[field.placeholder] = value;
-      const normPlaceholder = normalized(field.placeholder);
-      if (
-        normPlaceholder !== field.placeholder &&
-        normPlaceholder !== normalized(field.name) &&
-        normPlaceholder !== normalized(field.id) &&
-        normPlaceholder !== normalized(field.labelText)
-      ) {
-        data[normPlaceholder] = value;
-      }
-    }
-    // aria-label is primary on many forms (e.g. your form uses name="First name" and aria-label="First name")
-    if (
-      field.ariaLabel &&
-      field.ariaLabel !== field.name &&
-      field.ariaLabel !== field.id &&
-      field.ariaLabel !== field.labelText &&
-      field.ariaLabel !== field.placeholder
-    ) {
-      data[field.ariaLabel] = value;
-      const normAria = normalized(field.ariaLabel);
-      if (
-        normAria !== field.ariaLabel &&
-        normAria !== normalized(field.name) &&
-        normAria !== normalized(field.id)
-      ) {
-        data[normAria] = value;
-      }
-    }
-
-    // If no identifiers found, try to create a key from the field type and position
-    if (
-      !field.name &&
-      !field.id &&
-      !field.labelText &&
-      !field.placeholder &&
-      !field.ariaLabel
-    ) {
-      // Fallback: use a generic key based on field type
-      const fallbackKey = `field_${type}_${fields.indexOf(field)}`;
-      data[fallbackKey] = value;
-    }
-  }
-
-  return data;
-}
 
 function getConfidenceClass(c: number): "high" | "medium" | "low" {
   return c >= 0.6 ? "high" : c >= 0.3 ? "medium" : "low";
@@ -490,11 +174,13 @@ function getHostElement(): HTMLElement {
 export function initAgentPanel(
   executeCallback: ExecuteCallback,
   recalculateCallback: RecalculateCallback,
+  autofillDataGenerator?: AutofillDataGenerator,
 ) {
   if (shadowRoot) return;
 
   onExecute = executeCallback;
   onRecalculate = recalculateCallback;
+  onGenerateAutofillData = autofillDataGenerator || null;
   const host = getHostElement();
   shadowRoot = host.attachShadow({ mode: "open" });
 
@@ -529,18 +215,39 @@ export function initAgentPanel(
     `;
   shadowRoot.appendChild(container);
 
-  shadowRoot.getElementById("autofill-btn")?.addEventListener("click", () => {
-    if (currentFormFields && currentFormFields.length > 0) {
-      const dataMap = generateSmartData(currentFormFields);
-      console.log(
-        "[Flow Agent] Autofill triggered with fields:",
-        currentFormFields,
-      );
-      console.log("[Flow Agent] Generated data map:", dataMap);
-      // Enable debug mode for better troubleshooting
-      (window as any).__fillActiveForm(dataMap, { debug: true, delay: 50 });
-    } else {
+  shadowRoot.getElementById("autofill-btn")?.addEventListener("click", async () => {
+    const btn = shadowRoot!.getElementById("autofill-btn") as HTMLButtonElement;
+    const textEl = shadowRoot!.querySelector(".autofill-text") as HTMLElement;
+
+    if (!currentFormFields || currentFormFields.length === 0) {
       console.warn("[Flow Agent] No form fields available for autofill");
+      return;
+    }
+
+    if (!onGenerateAutofillData) {
+      console.warn("[Flow Agent] No autofill data generator configured");
+      return;
+    }
+
+    // Show loading state
+    btn.disabled = true;
+    btn.textContent = "Generating...";
+    if (textEl) textEl.textContent = "AI is generating data...";
+
+    try {
+      const dataMap = await onGenerateAutofillData(currentFormFields);
+      console.log("[Flow Agent] AI-generated data map:", dataMap);
+      (window as any).__fillActiveForm(dataMap, { debug: true, delay: 50 });
+    } catch (error) {
+      console.error("[Flow Agent] Autofill data generation failed:", error);
+      if (textEl) textEl.textContent = "Generation failed";
+      setTimeout(() => {
+        if (textEl) textEl.textContent = "Autofill Available";
+      }, 2000);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "Fill Form";
+      if (textEl) textEl.textContent = "Autofill Available";
     }
   });
 }
@@ -555,6 +262,7 @@ export function renderAgentPanel(
     placeholder: string;
     labelText: string;
     ariaLabel: string;
+    options?: string[];
   }[],
 ) {
   if (!shadowRoot) return;

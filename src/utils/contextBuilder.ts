@@ -487,7 +487,10 @@ function inferPageIntent(
   return "unknown";
 }
 
-// 5. Main Exported Function
+// 5. Exported helper for intent detection
+export { inferPageIntent };
+
+// 6. Main Exported Function
 
 /**
  * Builds the complete PageContext for the current state of the page.

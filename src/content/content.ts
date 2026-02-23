@@ -23,6 +23,7 @@ import {
   PredictionResult,
   RankedPrediction,
 } from "@/utils/predictionEngine";
+import { inferPageIntent } from "@/utils/contextBuilder";
 import {
   initAgentPanel,
   renderAgentPanel,
@@ -31,7 +32,7 @@ import {
 } from "./agentPanel";
 import { createAIProvider } from "@/utils/aiProviderFactory";
 import { AI_CONFIG } from "@/config/aiConfig";
-import { AIProvider } from "@/types/ai";
+import { AIProvider, FormFieldInfo } from "@/types/ai";
 
 // --- Global State ---
 
@@ -39,6 +40,7 @@ let sessionId: string | null = null;
 let isRecordingActive = false;
 let isAgentGloballyEnabled = true; // Default state, will be updated from storage
 let isAgentInitialized = false;
+let hasUserInteracted = false; // Don't fire AI on page load — wait for first real interaction
 
 let lastRecordedEvent: (any & { boundingBox?: DOMRect }) | null = null;
 let updateTimeout: number | undefined;
@@ -58,20 +60,62 @@ let isUpdating = false;
 let lastPrediction: PredictionResult | null = null;
 
 let aiProvider: AIProvider | null | undefined = undefined;
-let lastAIPredictionTime = 0;
-let aiCallCount = 0;
-let aiCallResetTime = Date.now();
-const AI_COOLDOWN = 15000; // Increased to 15 seconds between AI calls
-const MAX_AI_CALLS_PER_MINUTE = 3; // Maximum 3 AI calls per minute
-const AI_CALL_RESET_INTERVAL = 60000; // Reset counter every minute
+
+// --- AI Call Logger with timestamp ---
+function aiLog(msg: string) {
+  const now = new Date();
+  const ts = `${now.toLocaleTimeString('en-GB')}.${String(now.getMilliseconds()).padStart(3, '0')}`;
+  console.log(`[AI Call Log] [${ts}] ${msg}`);
+}
+
+// --- Unified AI Rate Limiter ---
+// State lives on `window` so all script instances (double-injection) share it
+const AI_MIN_INTERVAL = 10000;         // 10s minimum between any AI call
+const AI_MAX_CALLS_PER_WINDOW = 4;     // Max 4 AI calls per window
+const AI_WINDOW_DURATION = 120000;     // 2-minute sliding window
+
+type RateLimiterState = { lastCall: number; count: number; windowStart: number };
+function getRLState(): RateLimiterState {
+  if (!(window as any).__aiRateLimiter) {
+    (window as any).__aiRateLimiter = { lastCall: 0, count: 0, windowStart: Date.now() };
+  }
+  return (window as any).__aiRateLimiter as RateLimiterState;
+}
+
+function canMakeAICall(): boolean {
+  const now = Date.now();
+  const s = getRLState();
+  if (now - s.windowStart > AI_WINDOW_DURATION) {
+    s.count = 0;
+    s.windowStart = now;
+  }
+  return now - s.lastCall >= AI_MIN_INTERVAL && s.count < AI_MAX_CALLS_PER_WINDOW;
+}
+
+function recordAICall() {
+  const s = getRLState();
+  s.lastCall = Date.now();
+  s.count++;
+  aiLog(`API call recorded | Count this window: ${s.count}/${AI_MAX_CALLS_PER_WINDOW} | Window resets in: ${Math.round((AI_WINDOW_DURATION - (Date.now() - s.windowStart)) / 1000)}s`);
+}
+
+// --- Autofill AI Cache ---
+// Cache AI-generated form data to avoid redundant calls for the same form
+let cachedAutofillData: Record<string, string> | null = null;
+let cachedAutofillFieldsKey: string | null = null;
+let isAutofillGenerating = false;
 
 const INTERACTIVE_ELEMENTS = "input, button, a, textarea, select";
 
 // --- Initialization ---
 
 async function init() {
-  // Prevent duplicate listeners on script re-injection
+  // Only run in the top-level frame, not inside iframes
+  if (window !== window.top) return;
+
+  // Prevent duplicate init on script re-injection — set flag SYNCHRONOUSLY before any await
   if ((window as any).__flowRecorderListenersAttached) return;
+  (window as any).__flowRecorderListenersAttached = true;
 
   isRecordingActive = await isRecording();
   sessionId = await getOrCreateSessionId();
@@ -92,17 +136,175 @@ async function init() {
     attachRecordingListeners();
   }
 
-  (window as any).__flowRecorderListenersAttached = true;
   console.log("[FlowRecorder] Content script initialized.");
 }
 
 // --- Agent Logic ---
 
+/**
+ * Generates autofill data using AI. Falls back to basic generated data
+ * if AI is unavailable or the call fails.
+ */
+async function generateAutofillData(
+  fields: FormFieldInfo[],
+): Promise<Record<string, string>> {
+  // Prevent concurrent generation
+  if (isAutofillGenerating) {
+    console.log("[Flow Agent] Autofill generation already in progress, waiting...");
+    // Return cached data if available, otherwise fallback
+    return cachedAutofillData || generateBasicFormData(fields);
+  }
+
+  // Build a cache key from field identifiers to detect same form
+  const fieldsKey = fields.map(f => `${f.name}|${f.id}|${f.type}`).join(";");
+
+  // Return cached data if the form hasn't changed
+  if (cachedAutofillData && cachedAutofillFieldsKey === fieldsKey) {
+    console.log("[Flow Agent] Returning cached AI form data");
+    return cachedAutofillData;
+  }
+
+  // Ensure AI provider is initialized
+  if (aiProvider === undefined) {
+    aiProvider = getAIProvider();
+  }
+
+  if (aiProvider && canMakeAICall()) {
+    isAutofillGenerating = true;
+    try {
+      aiLog(`Form data AI call triggered | Fields: ${fields.length} | Page: ${document.title || window.location.pathname}`);
+      recordAICall();
+      console.log("[Flow Agent] Requesting AI-generated form data...");
+      const pageContext = document.title || window.location.pathname;
+      const result = await aiProvider.generateFormData(fields, pageContext);
+
+      if (result.fieldValues && Object.keys(result.fieldValues).length > 0) {
+        aiLog(`Form data AI call SUCCESS | Fields generated: ${Object.keys(result.fieldValues).length}`);
+        console.log("[Flow Agent] AI-generated form data received:", result.fieldValues);
+
+        // Expand the AI-generated data to include multiple key variants
+        // so findBestFieldMatch in the form filler can match by name, id, label, etc.
+        const expandedData: Record<string, string> = {};
+        for (const field of fields) {
+          // Find the AI-generated value for this field by checking all identifiers
+          const identifiers = [field.name, field.id, field.labelText, field.ariaLabel, field.placeholder].filter(Boolean);
+          let value: string | undefined;
+
+          for (const key of identifiers) {
+            if (result.fieldValues[key]) {
+              value = result.fieldValues[key];
+              break;
+            }
+          }
+
+          // Also check normalized keys (lowercased, no separators)
+          if (!value) {
+            const normalize = (s: string) => (s || "").toLowerCase().replace(/[\s_-]/g, "");
+            for (const key of identifiers) {
+              const normKey = normalize(key);
+              for (const [aiKey, aiVal] of Object.entries(result.fieldValues)) {
+                if (normalize(aiKey) === normKey) {
+                  value = aiVal;
+                  break;
+                }
+              }
+              if (value) break;
+            }
+          }
+
+          if (!value) continue;
+
+          // Add the value under all available identifiers for robust matching
+          for (const id of identifiers) {
+            if (id) expandedData[id] = value;
+          }
+        }
+
+        // Cache the result
+        cachedAutofillData = expandedData;
+        cachedAutofillFieldsKey = fieldsKey;
+        return expandedData;
+      }
+    } catch (error) {
+      aiLog(`Form data AI call FAILED | Error: ${error}`);
+      console.warn("[Flow Agent] AI form data generation failed, falling back to basic generator:", error);
+    } finally {
+      isAutofillGenerating = false;
+    }
+  } else if (!aiProvider) {
+    aiLog("Form data AI call SKIPPED (no provider configured)");
+    console.log("[Flow Agent] No AI provider available, using basic data generator");
+  } else {
+    const s = getRLState();
+    aiLog(`Form data AI call SKIPPED (rate limited) | Calls this window: ${s.count}/${AI_MAX_CALLS_PER_WINDOW} | Cooldown remaining: ${Math.max(0, Math.round((AI_MIN_INTERVAL - (Date.now() - s.lastCall)) / 1000))}s`);
+    console.log("[Flow Agent] AI rate limited, using basic data generator");
+  }
+
+  // Fallback: generate basic data without AI
+  const fallback = generateBasicFormData(fields);
+  cachedAutofillData = fallback;
+  cachedAutofillFieldsKey = fieldsKey;
+  return fallback;
+}
+
+/**
+ * Basic fallback data generator (used when AI is unavailable).
+ * Generates simple test data based on field type heuristics.
+ */
+function generateBasicFormData(fields: FormFieldInfo[]): Record<string, string> {
+  const data: Record<string, string> = {};
+  const normalize = (str: string): string => (str || "").toLowerCase().replace(/[\s_-]/g, "");
+
+  const randomString = (len: number) => {
+    const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
+    return Array.from({ length: len }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
+  };
+
+  const firstName = "Alex";
+  const lastName = "Johnson";
+  const email = `alex.johnson${Math.floor(Math.random() * 1000)}@example.com`;
+  const password = `Test!${randomString(8)}#1`;
+  const phone = "+1-555-" + Math.floor(Math.random() * 900 + 100) + "-" + Math.floor(Math.random() * 9000 + 1000);
+
+  for (const field of fields) {
+    const hints = [field.name, field.id, field.placeholder, field.labelText, field.ariaLabel]
+      .map(normalize)
+      .join(" ");
+    const type = field.type.toLowerCase();
+
+    let value = "";
+    if (field.options && field.options.length > 0) {
+      // For select/dropdown fields, pick the first valid option
+      value = field.options[0];
+    } else if (type === "email" || hints.includes("email")) value = email;
+    else if (type === "password" || hints.includes("password")) value = password;
+    else if (type === "tel" || hints.includes("phone") || hints.includes("mobile")) value = phone;
+    else if (hints.includes("firstname") || hints.includes("first")) value = firstName;
+    else if (hints.includes("lastname") || hints.includes("last")) value = lastName;
+    else if (hints.includes("name")) value = `${firstName} ${lastName}`;
+    else if (type === "number") value = String(Math.floor(Math.random() * 10000));
+    else if (type === "date") value = "1990-06-15";
+    else value = `Test ${randomString(6)}`;
+
+    if (!value) continue;
+
+    const identifiers = [field.name, field.id, field.labelText, field.ariaLabel, field.placeholder].filter(Boolean);
+    for (const id of identifiers) {
+      data[id] = value;
+    }
+    if (identifiers.length === 0) {
+      data[`field_${type}_${fields.indexOf(field)}`] = value;
+    }
+  }
+
+  return data;
+}
+
 function initializeAgent() {
   if (isAgentInitialized) return;
 
   console.log("[Flow Agent] Initializing...");
-  initAgentPanel(onExecutePrediction, scheduleUpdate);
+  initAgentPanel(onExecutePrediction, scheduleUpdate, generateAutofillData);
   toggleAgentPanelVisibility(true);
   document.addEventListener("mousemove", handleMouseMove, true);
   updateAgentPredictions();
@@ -185,28 +387,26 @@ async function updateAgentPredictions() {
 
     let finalResult = deterministic;
 
-    // Reset AI call counter if a minute has passed
-    const now = Date.now();
-    if (now - aiCallResetTime > AI_CALL_RESET_INTERVAL) {
-      aiCallCount = 0;
-      aiCallResetTime = now;
-    }
-
     // Only call AI if:
     // 1. Provider is available
     // 2. Confidence is very low (< 0.2)
-    // 3. Cooldown has passed
-    // 4. We haven't exceeded the rate limit
-    const canCallAI =
+    // 3. User has interacted with the page (not a cold page-load)
+    // 4. Unified rate limiter allows it
+    if (
       aiProvider &&
       deterministic.confidence < 0.2 &&
-      now - lastAIPredictionTime > AI_COOLDOWN &&
-      aiCallCount < MAX_AI_CALLS_PER_MINUTE;
-
-    if (canCallAI) {
-      lastAIPredictionTime = now;
-      aiCallCount++;
+      hasUserInteracted &&
+      canMakeAICall()
+    ) {
+      aiLog(`Prediction AI call triggered | Confidence: ${deterministic.confidence.toFixed(3)} | Provider: ${AI_CONFIG.gemini ? 'Gemini' : 'ChatGPT'}`);
+      recordAICall();
       finalResult = await maybeUseAI(context, deterministic, aiProvider);
+      aiLog(`Prediction AI call completed | New confidence: ${finalResult.confidence.toFixed(3)}`);
+    } else if (aiProvider && deterministic.confidence < 0.2 && !hasUserInteracted) {
+      aiLog("Prediction AI call SKIPPED (waiting for user interaction)");
+    } else if (aiProvider && deterministic.confidence < 0.2 && !canMakeAICall()) {
+      const s = getRLState();
+      aiLog(`Prediction AI call SKIPPED (rate limited) | Confidence: ${deterministic.confidence.toFixed(3)} | Calls this window: ${s.count}/${AI_MAX_CALLS_PER_WINDOW} | Cooldown remaining: ${Math.max(0, Math.round((AI_MIN_INTERVAL - (Date.now() - s.lastCall)) / 1000))}s`);
     }
 
     if (lastPrediction) {
@@ -234,13 +434,14 @@ async function updateAgentPredictions() {
 
 function scheduleUpdate() {
   if (updateTimeout) clearTimeout(updateTimeout);
-  updateTimeout = window.setTimeout(updateAgentPredictions, 300); // Increased debounce to 300ms
+  updateTimeout = window.setTimeout(updateAgentPredictions, 600); // 600ms debounce
 }
 
-const throttledScheduleUpdate = throttle(scheduleUpdate, 500); // Increased throttle to 500ms
+const throttledScheduleUpdate = throttle(scheduleUpdate, 1000); // 1s throttle
 
 // Throttle mousemove handler itself to reduce frequency
 const throttledMouseMove = throttle((event: MouseEvent) => {
+  hasUserInteracted = true;
   const target = event.target as HTMLElement;
   const interactiveElement = target.closest(INTERACTIVE_ELEMENTS);
 
@@ -250,7 +451,7 @@ const throttledMouseMove = throttle((event: MouseEvent) => {
 
   lastHoveredElement = interactiveElement;
   throttledScheduleUpdate();
-}, 300); // Throttle mousemove to max once per 300ms
+}, 500); // Throttle mousemove to max once per 500ms
 
 function handleMouseMove(event: MouseEvent) {
   throttledMouseMove(event);
@@ -271,6 +472,7 @@ function onExecutePrediction(prediction: RankedPrediction) {
 // --- Event Capture & Core Logic ---
 
 const captureInteraction = async (event: Event) => {
+  hasUserInteracted = true;
   const target = event.target as HTMLElement;
   if (!target || target.closest("[data-flow-recorder]")) return;
 
@@ -286,6 +488,9 @@ const captureInteraction = async (event: Event) => {
 
     if (newActiveForm !== activeFormForAutofill) {
       activeFormForAutofill = newActiveForm;
+      // Invalidate autofill cache when form changes
+      cachedAutofillData = null;
+      cachedAutofillFieldsKey = null;
       if (newActiveForm) {
         // Collect more comprehensive field metadata for better autofill matching
         activeFormFields = Array.from(
@@ -330,6 +535,13 @@ const captureInteraction = async (event: Event) => {
               placeholder: (input as HTMLInputElement).placeholder || "",
               labelText: labelText,
               ariaLabel: ariaLabel,
+              // Capture dropdown options for select elements
+              options: input.tagName.toLowerCase() === "select"
+                ? Array.from((input as HTMLSelectElement).options)
+                    .filter(opt => opt.value && opt.value !== "" && !opt.disabled)
+                    .map(opt => opt.text.trim())
+                    .slice(0, 20)
+                : undefined,
             };
           });
       } else {
@@ -457,7 +669,7 @@ function buildPageContext(): PageContext {
       }
     });
   return {
-    pageIntent: "unknown", // Simplified for now
+    pageIntent: inferPageIntent(window.location.href, [], visibleActions.slice(0, 50)),
     visibleActions: visibleActions.slice(0, 50),
     forms: [],
     lastUserAction: lastRecordedEvent
