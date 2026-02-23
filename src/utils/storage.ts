@@ -4,6 +4,7 @@ const STORAGE_KEYS = {
   IS_RECORDING: "flowRecorder_isRecording",
   SESSIONS: "flowRecorder_sessions",
   LAST_USER_ACTION: "flowRecorder_lastUserAction",
+  AGENT_ENABLED: "flowRecorder_agentEnabled",
 } as const;
 
 export async function getOrCreateSessionId(): Promise<string> {
@@ -58,6 +59,16 @@ export async function isRecording(): Promise<boolean> {
 
 export async function setRecordingStatus(status: boolean): Promise<void> {
   await chrome.storage.local.set({ [STORAGE_KEYS.IS_RECORDING]: status });
+}
+
+export async function isAgentEnabled(): Promise<boolean> {
+  const data = await chrome.storage.local.get(STORAGE_KEYS.AGENT_ENABLED);
+  // Default to true if the value is not explicitly set to false
+  return data[STORAGE_KEYS.AGENT_ENABLED] !== false;
+}
+
+export async function setAgentEnabled(status: boolean): Promise<void> {
+  await chrome.storage.local.set({ [STORAGE_KEYS.AGENT_ENABLED]: status });
 }
 
 export async function saveSession(flowData: any): Promise<void> {

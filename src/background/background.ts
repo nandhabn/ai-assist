@@ -75,12 +75,16 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           const flowDataPackage = prepareFlowData({ sessionId, events });
 
           if (!flowDataPackage) {
-            sendResponse({ success: false, error: "No data to process for AI script generation." });
+            sendResponse({
+              success: false,
+              error: "No data to process for AI script generation.",
+            });
             return;
           }
 
           // TODO: Replace with the actual backend proxy endpoint from environment configuration
-          const BACKEND_PROXY_URL = 'https://your-secure-backend.com/api/generate-script';
+          const BACKEND_PROXY_URL =
+            "https://your-secure-backend.com/api/generate-script";
 
           try {
             /*
@@ -102,21 +106,21 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             const aiResult = await response.json();
             sendResponse({ success: true, data: aiResult });
             */
-           
+
             // For now, during transition, return a mocked successful response.
             // This allows the frontend to be developed without a live backend.
-            console.log('[FlowRecorder] Using mocked AI response for now.');
+            console.log("[FlowRecorder] Using mocked AI response for now.");
             const mockAiResult = {
               summary: flowDataPackage.summary,
-              structuredPrompt: "// AI-generated script will appear here once the backend proxy is connected.\n\n// Mocked response:\nconsole.log('Flow Recorder test script generated!');",
-              metadata: flowDataPackage.metadata
+              structuredPrompt:
+                "// AI-generated script will appear here once the backend proxy is connected.\n\n// Mocked response:\nconsole.log('Flow Recorder test script generated!');",
+              metadata: flowDataPackage.metadata,
             };
 
             // Simulate network delay
             setTimeout(() => {
               sendResponse({ success: true, data: mockAiResult });
             }, 1000);
-
           } catch (error: any) {
             console.error("[FlowRecorder] Backend proxy error:", error);
             sendResponse({ success: false, error: error.message });

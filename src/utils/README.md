@@ -38,11 +38,11 @@ The first implementation of the `AIProvider` interface is `GeminiProvider`.
 
 ### Key Features:
 
--   **Implements `AIProvider`**: Strictly adheres to the interface contract.
--   **Structured Prompts**: Sends a minimal, structured prompt containing only the `CompactContext` to keep token usage low and responses predictable.
--   **JSON Mode**: Instructs the Gemini API to return a response in a strict JSON format, which maps directly to the `AIPrediction` interface. This avoids unreliable string parsing.
--   **Browser-Compatible**: Uses the standard `fetch` API, making it safe to use within a Chrome Extension's background service worker.
--   **Security**: The constructor requires an API key, and code comments strongly advise against hardcoding it, recommending user-based configuration and secure storage instead.
+- **Implements `AIProvider`**: Strictly adheres to the interface contract.
+- **Structured Prompts**: Sends a minimal, structured prompt containing only the `CompactContext` to keep token usage low and responses predictable.
+- **JSON Mode**: Instructs the Gemini API to return a response in a strict JSON format, which maps directly to the `AIPrediction` interface. This avoids unreliable string parsing.
+- **Browser-Compatible**: Uses the standard `fetch` API, making it safe to use within a Chrome Extension's background service worker.
+- **Security**: The constructor requires an API key, and code comments strongly advise against hardcoding it, recommending user-based configuration and secure storage instead.
 
 ---
 
@@ -69,12 +69,12 @@ Adding a new provider like Amazon Nova is straightforward thanks to the provider
 ### Step-by-Step Guide:
 
 1.  **Create the Provider Class**:
-    -   Create a new file: `src/utils/novaProvider.ts`.
-    -   Inside this file, define a `NovaProvider` class that implements the `AIProvider` interface.
+    - Create a new file: `src/utils/novaProvider.ts`.
+    - Inside this file, define a `NovaProvider` class that implements the `AIProvider` interface.
 
     ```typescript
     // src/utils/novaProvider.ts
-    import { AIProvider, CompactContext, AIPrediction } from '../types/ai';
+    import { AIProvider, CompactContext, AIPrediction } from "../types/ai";
 
     export class NovaProvider implements AIProvider {
       private apiKey: string;
@@ -91,10 +91,10 @@ Adding a new provider like Amazon Nova is straightforward thanks to the provider
         // 2. Make a `fetch` call to the Amazon Nova API endpoint.
         //    This will likely involve AWS Signature V4 for authentication,
         //    which may require a small library or a backend proxy.
-        const response = await fetch('NOVA_API_ENDPOINT', {
-          method: 'POST',
+        const response = await fetch("NOVA_API_ENDPOINT", {
+          method: "POST",
           headers: {
-            'Content-Type': 'application/json',
+            "Content-Type": "application/json",
             // ...Authorization headers for Nova
           },
           body: JSON.stringify({ prompt: novaPrompt }),
@@ -105,7 +105,7 @@ Adding a new provider like Amazon Nova is straightforward thanks to the provider
         // 3. Parse the response from Nova and map it to the AIPrediction interface.
         const prediction: AIPrediction = {
           predictedActionLabel: data.prediction.action, // Adjust to actual response structure
-          reasoning: data.prediction.explanation,       // Adjust to actual response structure
+          reasoning: data.prediction.explanation, // Adjust to actual response structure
           confidenceEstimate: data.prediction.confidence, // Adjust to actual response structure
         };
 
@@ -115,15 +115,15 @@ Adding a new provider like Amazon Nova is straightforward thanks to the provider
     ```
 
 2.  **Register the New Provider**:
-    -   Open the provider factory file: `src/utils/aiProviderFactory.ts`.
-    -   Import your new `NovaProvider`.
-    -   Add it to the `providerRegistry`.
+    - Open the provider factory file: `src/utils/aiProviderFactory.ts`.
+    - Import your new `NovaProvider`.
+    - Add it to the `providerRegistry`.
 
     ```typescript
     // src/utils/aiProviderFactory.ts
-    import { AIProvider } from '../types/ai';
-    import { GeminiProvider } from './geminiProvider';
-    import { NovaProvider } from './novaProvider'; // <-- Import it
+    import { AIProvider } from "../types/ai";
+    import { GeminiProvider } from "./geminiProvider";
+    import { NovaProvider } from "./novaProvider"; // <-- Import it
 
     const providerRegistry: Record<string, (apiKey: string) => AIProvider> = {
       gemini: (apiKey) => new GeminiProvider(apiKey),
@@ -133,4 +133,4 @@ Adding a new provider like Amazon Nova is straightforward thanks to the provider
     ```
 
 3.  **Select the Provider in Configuration**:
-    -   The application can now select `"nova"` as the AI provider name from its configuration source, and the factory will automatically create and return a `NovaProvider` instance. No other code changes are needed.
+    - The application can now select `"nova"` as the AI provider name from its configuration source, and the factory will automatically create and return a `NovaProvider` instance. No other code changes are needed.

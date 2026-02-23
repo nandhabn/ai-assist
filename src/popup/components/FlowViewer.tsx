@@ -240,7 +240,9 @@ export default function FlowViewer({ eventCount }: FlowViewerProps) {
                   }}
                   disabled={replayingSession === sessionId}
                 >
-                  {replayingSession === sessionId ? "Replaying..." : "▶️ Replay Session"}
+                  {replayingSession === sessionId
+                    ? "Replaying..."
+                    : "▶️ Replay Session"}
                 </button>
               </div>
             </summary>

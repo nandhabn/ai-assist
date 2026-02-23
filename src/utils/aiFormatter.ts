@@ -111,8 +111,6 @@ function generateSummary(
   return lines.join("\n");
 }
 
-
-
 function calculateDuration(events: RecordedEvent[]): number {
   if (events.length === 0) return 0;
 
@@ -124,12 +122,14 @@ function calculateDuration(events: RecordedEvent[]): number {
 
 export function exportFlowAsMarkdown(flowData: FlowDataPackage) {
   if (!flowData) return "No data to export.";
-  
+
   const { summary, metadata } = flowData;
 
   const lines = [];
 
-  lines.push(`# AI Flow Recorder Report - ${new Date(metadata.timestamp).toISOString()}\n`);
+  lines.push(
+    `# AI Flow Recorder Report - ${new Date(metadata.timestamp).toISOString()}\n`,
+  );
 
   lines.push(`**Session ID**: ${metadata.sessionId}`);
   lines.push(`**Duration**: ${Math.round(metadata.duration / 1000)}s`);
@@ -142,9 +142,20 @@ export function exportFlowAsMarkdown(flowData: FlowDataPackage) {
   lines.push("\n---\n");
   lines.push("### Raw Events Summary\n");
   lines.push("```json");
-  lines.push(JSON.stringify(flowData.events.slice(0, 10).map(e => ({ action: e.actionType, url: e.url, selector: e.selector?.css })), null, 2));
+  lines.push(
+    JSON.stringify(
+      flowData.events
+        .slice(0, 10)
+        .map((e) => ({
+          action: e.actionType,
+          url: e.url,
+          selector: e.selector?.css,
+        })),
+      null,
+      2,
+    ),
+  );
   lines.push("```");
-
 
   return lines.join("\n");
 }

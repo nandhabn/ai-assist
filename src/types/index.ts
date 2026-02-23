@@ -36,6 +36,7 @@ export interface ElementMetadata {
   ariaLabel?: string;
   dataTestId?: string;
   parentForm?: string | null;
+  parentFormIndex?: number | null; // Index of form in document.querySelectorAll('form')
   value?: string;
   boundingBox?: {
     top: number;

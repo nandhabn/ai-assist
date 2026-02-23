@@ -9,13 +9,33 @@ export default function RecorderControl({
   onRecordingChange,
 }: RecorderControlProps) {
   const [isRecording, setIsRecording] = React.useState(false);
+  const [isAgentEnabled, setIsAgentEnabled] = React.useState(true);
   const [buttonLoading, setButtonLoading] = React.useState(false);
 
   React.useEffect(() => {
     // Check initial recording status
-    chrome.storage.local.get(["flowRecorder_isRecording"], (data) => {
-      setIsRecording(data.flowRecorder_isRecording || false);
-    });
+    chrome.storage.local.get(
+      ["flowRecorder_isRecording", "flowRecorder_agentEnabled"],
+      (data) => {
+        setIsRecording(data.flowRecorder_isRecording || false);
+        setIsAgentEnabled(data.flowRecorder_agentEnabled !== false);
+      },
+    );
+
+    // Listen for storage changes
+    const handleStorageChange = (changes: {
+      [key: string]: chrome.storage.StorageChange;
+    }) => {
+      if (changes.flowRecorder_isRecording) {
+        setIsRecording(changes.flowRecorder_isRecording.newValue || false);
+      }
+      if (changes.flowRecorder_agentEnabled) {
+        setIsAgentEnabled(changes.flowRecorder_agentEnabled.newValue !== false);
+      }
+    };
+
+    chrome.storage.onChanged.addListener(handleStorageChange);
+    return () => chrome.storage.onChanged.removeListener(handleStorageChange);
   }, []);
 
   const handleStartRecording = async () => {
@@ -70,6 +90,29 @@ export default function RecorderControl({
     }
   };
 
+  const handleToggleAgent = async () => {
+    const newStatus = !isAgentEnabled;
+    setIsAgentEnabled(newStatus);
+
+    try {
+      // Update storage
+      await chrome.storage.local.set({ flowRecorder_agentEnabled: newStatus });
+
+      // Notify content script
+      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        if (tabs[0]?.id) {
+          chrome.tabs.sendMessage(tabs[0].id, {
+            action: "TOGGLE_AGENT",
+            enabled: newStatus,
+          });
+        }
+      });
+    } catch (error) {
+      console.error("Failed to toggle agent:", error);
+      setIsAgentEnabled(!newStatus); // Revert on error
+    }
+  };
+
   return (
     <div className="recorder-control">
       <div className="control-section">
@@ -102,6 +145,28 @@ export default function RecorderControl({
               ? "All interactions are being tracked"
               : "Click Start to begin recording user interactions"}
           </p>
+        </div>
+      </div>
+
+      <div className="control-section">
+        <h2>Flow Agent</h2>
+        <div className="agent-toggle-section">
+          <div className="toggle-info">
+            <span className="toggle-label">AI Prediction Assistant</span>
+            <span className="toggle-description">
+              {isAgentEnabled
+                ? "Agent is active and predicting next actions"
+                : "Agent is disabled - no predictions shown"}
+            </span>
+          </div>
+          <label className="toggle-switch">
+            <input
+              type="checkbox"
+              checked={isAgentEnabled}
+              onChange={handleToggleAgent}
+            />
+            <span className="toggle-slider"></span>
+          </label>
         </div>
       </div>
 

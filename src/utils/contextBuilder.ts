@@ -1,4 +1,4 @@
-import { RecordedEvent } from '../types';
+import { RecordedEvent } from "../types";
 
 // Using RecordedEvent as the equivalent of UserAction
 export type UserAction = RecordedEvent;
@@ -15,13 +15,13 @@ const INTENT_CONFIDENCE_THRESHOLD = 0.2;
  * High-level intent of the page, inferred through heuristics.
  */
 export type PageIntent =
-  | 'authentication'
-  | 'search'
-  | 'checkout'
-  | 'form_submission'
-  | 'navigation'
-  | 'dashboard'
-  | 'unknown';
+  | "authentication"
+  | "search"
+  | "checkout"
+  | "form_submission"
+  | "navigation"
+  | "dashboard"
+  | "unknown";
 
 /**
  * Represents a single input field within a form.
@@ -50,7 +50,7 @@ export interface FormContext {
 export interface ActionCandidate {
   label: string;
   selector: string;
-  role: 'primary' | 'secondary' | 'link' | 'unknown';
+  role: "primary" | "secondary" | "link" | "unknown";
   boundingBox: DOMRect;
   confidenceScore: number; // How likely this is a meaningful action
 }
@@ -69,14 +69,13 @@ export interface PageContext {
   lastActionRect: DOMRect | null;
 }
 
-
 // 2. Helper Utilities
 // These are small, pure functions that perform common checks and transformations.
 
 interface ElementVisualDetails {
-    rect: DOMRect;
-    isInViewport: boolean;
-    isVisible: boolean;
+  rect: DOMRect;
+  isInViewport: boolean;
+  isVisible: boolean;
 }
 
 /**
@@ -85,30 +84,39 @@ interface ElementVisualDetails {
  * @param element The element to check
  * @returns An object with rect, isInViewport, and isVisible, or null if not visible.
  */
-function getElementVisualDetails(element: Element): ElementVisualDetails | null {
-    if (!element || (element as HTMLElement).offsetParent === null || element.hasAttribute('disabled')) {
-        return null;
-    }
+function getElementVisualDetails(
+  element: Element,
+): ElementVisualDetails | null {
+  if (
+    !element ||
+    (element as HTMLElement).offsetParent === null ||
+    element.hasAttribute("disabled")
+  ) {
+    return null;
+  }
 
-    const rect = element.getBoundingClientRect();
-    // Tiny elements are not considered visible actions
-    if (rect.width < 5 || rect.height < 5) {
-        return null;
-    }
+  const rect = element.getBoundingClientRect();
+  // Tiny elements are not considered visible actions
+  if (rect.width < 5 || rect.height < 5) {
+    return null;
+  }
 
-    const style = window.getComputedStyle(element);
-    if (style.display === 'none' || style.visibility === 'hidden' || parseFloat(style.opacity) < 0.1) {
-        return null;
-    }
+  const style = window.getComputedStyle(element);
+  if (
+    style.display === "none" ||
+    style.visibility === "hidden" ||
+    parseFloat(style.opacity) < 0.1
+  ) {
+    return null;
+  }
 
-    const isInViewport = (
-        rect.top < window.innerHeight &&
-        rect.bottom > 0 &&
-        rect.left < window.innerWidth &&
-        rect.right > 0
-    );
+  const isInViewport =
+    rect.top < window.innerHeight &&
+    rect.bottom > 0 &&
+    rect.left < window.innerWidth &&
+    rect.right > 0;
 
-    return { rect, isInViewport, isVisible: true };
+  return { rect, isInViewport, isVisible: true };
 }
 
 /**
@@ -119,105 +127,120 @@ function getElementVisualDetails(element: Element): ElementVisualDetails | null 
  * @returns A valid CSS selector string.
  */
 function generateStableSelector(el: Element): string {
-    if (!el) return '';
+  if (!el) return "";
 
-    // 1. Prioritize unique and stable attributes, now with escaping
-    if (el.id) {
-        const selector = `#${CSS.escape(el.id.trim())}`;
-        try {
-            // Verify that the selector is valid and unique
-            if (document.querySelector(selector) === el) return selector;
-        } catch (e) { /* ignore invalid selector */ }
-    }
-
-    const dataTestId = el.getAttribute('data-testid');
-    if (dataTestId) {
-        const selector = `[data-testid="${CSS.escape(dataTestId)}"]`;
-        try {
-            if (document.querySelector(selector) === el) return selector;
-        } catch (e) { /* ignore invalid selector */ }
-    }
-    
-    const ariaLabel = el.getAttribute('aria-label');
-    if (ariaLabel) {
-        const selector = `[aria-label="${CSS.escape(ariaLabel)}"]`;
-        try {
-            if (document.querySelectorAll(selector).length === 1) return selector;
-        } catch (e) { /* ignore invalid selector */ }
-    }
-
-    const name = el.getAttribute('name');
-    if (name) {
-        const selector = `[name="${CSS.escape(name)}"]`;
-        try {
-           if (document.querySelector(selector) === el) return selector;
-        } catch (e) { /* ignore invalid selector */ }
-    }
-    
-    // 2. Fallback to path-based selector
-    let path = '';
-    let current: Element | null = el;
-    let depth = 0;
-    while (current && current.nodeType === Node.ELEMENT_NODE && current.tagName.toLowerCase() !== 'body' && depth < MAX_SELECTOR_DEPTH) {
-        let selector = current.tagName.toLowerCase();
-
-        // Filter for stable classes, limit to 2, and escape them
-        const stableClasses = Array.from(current.classList)
-            .filter(cls => 
-                !/^[a-z0-9_-]{8,}$/i.test(cls) && // Exclude long, random-like strings (potential hashes)
-                !cls.includes(':') &&              // Exclude state variants like 'hover:'
-                !cls.includes('/')                 // Exclude fractional utilities like 'w-1/2'
-            )
-            .slice(0, 2);
-        
-        if (stableClasses.length > 0) {
-            selector += '.' + stableClasses.map(cls => CSS.escape(cls)).join('.');
-        }
-        
-        const parent = current.parentElement;
-        if (parent) {
-            try {
-                const siblings = Array.from(parent.querySelectorAll(`:scope > ${selector}`));
-                if (siblings.length > 1) {
-                    const index = siblings.indexOf(current);
-                    if (index !== -1) {
-                        selector += `:nth-of-type(${index + 1})`;
-                    }
-                }
-            } catch (e) {
-                // If the selector is invalid (e.g., due to an unhandled class char),
-                // fall back to just the tag name for this level to prevent a crash.
-                selector = current.tagName.toLowerCase();
-            }
-        }
-        
-        path = selector + (path ? ` > ${path}` : '');
-        
-        // Early exit if we find a selector that's unique enough
-        try {
-            if (document.querySelector(path) === el) {
-                break;
-            }
-        } catch (e) {
-            // Path may be invalid during construction, continue and hope the next level is better
-        }
-
-        current = current.parentElement;
-        depth++;
-    }
-
-    // Final safety check. If the generated path is invalid or doesn't resolve, return a basic tag selector.
+  // 1. Prioritize unique and stable attributes, now with escaping
+  if (el.id) {
+    const selector = `#${CSS.escape(el.id.trim())}`;
     try {
-        if (document.querySelector(path) === el) {
-            return path;
-        }
-    } catch(e) {
-        // Fallback for completely invalid selector
+      // Verify that the selector is valid and unique
+      if (document.querySelector(selector) === el) return selector;
+    } catch (e) {
+      /* ignore invalid selector */
     }
-    
-    return el.tagName.toLowerCase();
-}
+  }
 
+  const dataTestId = el.getAttribute("data-testid");
+  if (dataTestId) {
+    const selector = `[data-testid="${CSS.escape(dataTestId)}"]`;
+    try {
+      if (document.querySelector(selector) === el) return selector;
+    } catch (e) {
+      /* ignore invalid selector */
+    }
+  }
+
+  const ariaLabel = el.getAttribute("aria-label");
+  if (ariaLabel) {
+    const selector = `[aria-label="${CSS.escape(ariaLabel)}"]`;
+    try {
+      if (document.querySelectorAll(selector).length === 1) return selector;
+    } catch (e) {
+      /* ignore invalid selector */
+    }
+  }
+
+  const name = el.getAttribute("name");
+  if (name) {
+    const selector = `[name="${CSS.escape(name)}"]`;
+    try {
+      if (document.querySelector(selector) === el) return selector;
+    } catch (e) {
+      /* ignore invalid selector */
+    }
+  }
+
+  // 2. Fallback to path-based selector
+  let path = "";
+  let current: Element | null = el;
+  let depth = 0;
+  while (
+    current &&
+    current.nodeType === Node.ELEMENT_NODE &&
+    current.tagName.toLowerCase() !== "body" &&
+    depth < MAX_SELECTOR_DEPTH
+  ) {
+    let selector = current.tagName.toLowerCase();
+
+    // Filter for stable classes, limit to 2, and escape them
+    const stableClasses = Array.from(current.classList)
+      .filter(
+        (cls) =>
+          !/^[a-z0-9_-]{8,}$/i.test(cls) && // Exclude long, random-like strings (potential hashes)
+          !cls.includes(":") && // Exclude state variants like 'hover:'
+          !cls.includes("/"), // Exclude fractional utilities like 'w-1/2'
+      )
+      .slice(0, 2);
+
+    if (stableClasses.length > 0) {
+      selector += "." + stableClasses.map((cls) => CSS.escape(cls)).join(".");
+    }
+
+    const parent = current.parentElement;
+    if (parent) {
+      try {
+        const siblings = Array.from(
+          parent.querySelectorAll(`:scope > ${selector}`),
+        );
+        if (siblings.length > 1) {
+          const index = siblings.indexOf(current);
+          if (index !== -1) {
+            selector += `:nth-of-type(${index + 1})`;
+          }
+        }
+      } catch (e) {
+        // If the selector is invalid (e.g., due to an unhandled class char),
+        // fall back to just the tag name for this level to prevent a crash.
+        selector = current.tagName.toLowerCase();
+      }
+    }
+
+    path = selector + (path ? ` > ${path}` : "");
+
+    // Early exit if we find a selector that's unique enough
+    try {
+      if (document.querySelector(path) === el) {
+        break;
+      }
+    } catch (e) {
+      // Path may be invalid during construction, continue and hope the next level is better
+    }
+
+    current = current.parentElement;
+    depth++;
+  }
+
+  // Final safety check. If the generated path is invalid or doesn't resolve, return a basic tag selector.
+  try {
+    if (document.querySelector(path) === el) {
+      return path;
+    }
+  } catch (e) {
+    // Fallback for completely invalid selector
+  }
+
+  return el.tagName.toLowerCase();
+}
 
 /**
  * Gets the accessible name of an element for use as a label.
@@ -225,18 +248,18 @@ function generateStableSelector(el: Element): string {
  * @returns A string representing the element's accessible name.
  */
 function getAccessibleName(element: Element): string {
-  const ariaLabel = element.getAttribute('aria-label');
+  const ariaLabel = element.getAttribute("aria-label");
   if (ariaLabel) return ariaLabel.trim();
 
   // Use textContent for a cleaner text representation than innerText
-  if ('textContent' in element && element.textContent) {
-      return element.textContent.trim().replace(/\s+/g, ' ').substring(0, 100);
+  if ("textContent" in element && element.textContent) {
+    return element.textContent.trim().replace(/\s+/g, " ").substring(0, 100);
   }
 
-  const title = element.getAttribute('title');
+  const title = element.getAttribute("title");
   if (title) return title.trim();
 
-  return '';
+  return "";
 }
 
 /**
@@ -244,16 +267,17 @@ function getAccessibleName(element: Element): string {
  * @param element The action element.
  * @returns The inferred role.
  */
-function getActionRole(element: Element): ActionCandidate['role'] {
-    if (element.tagName === 'A') return 'link';
+function getActionRole(element: Element): ActionCandidate["role"] {
+  if (element.tagName === "A") return "link";
 
-    const className = element.className.toLowerCase();
-    if (className.includes('primary') || className.includes('submit')) return 'primary';
-    if (className.includes('secondary') || className.includes('cancel')) return 'secondary';
+  const className = element.className.toLowerCase();
+  if (className.includes("primary") || className.includes("submit"))
+    return "primary";
+  if (className.includes("secondary") || className.includes("cancel"))
+    return "secondary";
 
-    return 'unknown';
+  return "unknown";
 }
-
 
 // 3. Core Extraction Functions
 
@@ -266,51 +290,59 @@ function getActionRole(element: Element): ActionCandidate['role'] {
  */
 function extractForms(root: Document | ShadowRoot = document): FormContext[] {
   const forms: FormContext[] = [];
-  const formElements = root.querySelectorAll('form');
+  const formElements = root.querySelectorAll("form");
 
-  formElements.forEach(form => {
+  formElements.forEach((form) => {
     const visualDetails = getElementVisualDetails(form);
     if (!visualDetails?.isInViewport) return;
 
     const formSelector = generateStableSelector(form);
     const fields: FieldContext[] = [];
-    const fieldElements = form.querySelectorAll('input, textarea, select');
+    const fieldElements = form.querySelectorAll("input, textarea, select");
     let filledCount = 0;
 
-    fieldElements.forEach(field => {
-      if (!(field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement || field instanceof HTMLSelectElement)) return;
-      
-      const type = field.getAttribute('type') || field.tagName.toLowerCase();
-      
-      const isFilled = type === 'checkbox' || type === 'radio'
-        ? (field as HTMLInputElement).checked
-        : field.value.length > 0;
+    fieldElements.forEach((field) => {
+      if (
+        !(
+          field instanceof HTMLInputElement ||
+          field instanceof HTMLTextAreaElement ||
+          field instanceof HTMLSelectElement
+        )
+      )
+        return;
 
-      if(isFilled) filledCount++;
+      const type = field.getAttribute("type") || field.tagName.toLowerCase();
 
-      let label = '';
-      if(field.labels && field.labels.length > 0) {
+      const isFilled =
+        type === "checkbox" || type === "radio"
+          ? (field as HTMLInputElement).checked
+          : field.value.length > 0;
+
+      if (isFilled) filledCount++;
+
+      let label = "";
+      if (field.labels && field.labels.length > 0) {
         label = getAccessibleName(field.labels[0]);
       } else {
-        const labelEl = field.closest('label');
-        if(labelEl) label = getAccessibleName(labelEl);
+        const labelEl = field.closest("label");
+        if (labelEl) label = getAccessibleName(labelEl);
       }
 
       fields.push({
         label,
         type,
         selector: generateStableSelector(field),
-        required: field.hasAttribute('required'),
+        required: field.hasAttribute("required"),
         filled: isFilled,
       });
     });
-    
+
     if (fields.length > 0) {
-        forms.push({
-          formSelector,
-          fields,
-          completionScore: fields.length > 0 ? filledCount / fields.length : 0,
-        });
+      forms.push({
+        formSelector,
+        fields,
+        completionScore: fields.length > 0 ? filledCount / fields.length : 0,
+      });
     }
   });
 
@@ -322,15 +354,18 @@ function extractForms(root: Document | ShadowRoot = document): FormContext[] {
  * @param root The document or shadow root to search within.
  * @returns An array of ActionCandidate objects.
  */
-function extractVisibleActions(root: Document | ShadowRoot = document): ActionCandidate[] {
+function extractVisibleActions(
+  root: Document | ShadowRoot = document,
+): ActionCandidate[] {
   let candidates: (ActionCandidate & { sortScore: number })[] = [];
-  const actionSelector = 'button, a, [role="button"], input[type="submit"], [onclick]';
+  const actionSelector =
+    'button, a, [role="button"], input[type="submit"], [onclick]';
   const elements = root.querySelectorAll(actionSelector);
   const viewportCenterY = window.innerHeight / 2;
 
-  elements.forEach(element => {
+  elements.forEach((element) => {
     if (!(element instanceof HTMLElement)) return;
-    
+
     const visualDetails = getElementVisualDetails(element);
     if (!visualDetails?.isInViewport) return;
 
@@ -338,15 +373,22 @@ function extractVisibleActions(root: Document | ShadowRoot = document): ActionCa
     if (!label) return;
 
     let confidence = 0.5;
-    if (element.tagName === 'BUTTON') confidence = 0.9;
-    else if (element.tagName === 'A') confidence = 0.7;
-    else if (element.tagName === 'INPUT' && element.getAttribute('type') === 'submit') confidence = 0.95;
-    else if (element.hasAttribute('onclick') && element.tagName === 'DIV') confidence = 0.4;
-    
+    if (element.tagName === "BUTTON") confidence = 0.9;
+    else if (element.tagName === "A") confidence = 0.7;
+    else if (
+      element.tagName === "INPUT" &&
+      element.getAttribute("type") === "submit"
+    )
+      confidence = 0.95;
+    else if (element.hasAttribute("onclick") && element.tagName === "DIV")
+      confidence = 0.4;
+
     // Prioritization score for candidate reduction
-    const distanceFromCenter = Math.abs((visualDetails.rect.top + visualDetails.rect.height / 2) - viewportCenterY);
-    const centralityScore = 1 - (distanceFromCenter / viewportCenterY); // Normalize to 0-1
-    const sortScore = confidence + (centralityScore * 0.5); // Weight confidence more
+    const distanceFromCenter = Math.abs(
+      visualDetails.rect.top + visualDetails.rect.height / 2 - viewportCenterY,
+    );
+    const centralityScore = 1 - distanceFromCenter / viewportCenterY; // Normalize to 0-1
+    const sortScore = confidence + centralityScore * 0.5; // Weight confidence more
 
     candidates.push({
       label,
@@ -360,12 +402,13 @@ function extractVisibleActions(root: Document | ShadowRoot = document): ActionCa
 
   // Limit candidate explosion
   if (candidates.length > MAX_ACTION_CANDIDATES) {
-    candidates = candidates.sort((a, b) => b.sortScore - a.sortScore).slice(0, MAX_ACTION_CANDIDATES);
+    candidates = candidates
+      .sort((a, b) => b.sortScore - a.sortScore)
+      .slice(0, MAX_ACTION_CANDIDATES);
   }
 
   return candidates;
 }
-
 
 // 4. Intent Inference Logic
 
@@ -375,7 +418,11 @@ function extractVisibleActions(root: Document | ShadowRoot = document): ActionCa
  * higher than the second-best, preventing ambiguity.
  * @returns The most likely PageIntent.
  */
-function inferPageIntent(url: string, forms: FormContext[], actions: ActionCandidate[]): PageIntent {
+function inferPageIntent(
+  url: string,
+  forms: FormContext[],
+  actions: ActionCandidate[],
+): PageIntent {
   const scores: Record<PageIntent, number> = {
     authentication: 0,
     search: 0,
@@ -387,39 +434,58 @@ function inferPageIntent(url: string, forms: FormContext[], actions: ActionCandi
   };
 
   // URL-based scoring
-  if (url.includes('login') || url.includes('signin') || url.includes('auth')) scores.authentication += 0.5;
-  if (url.includes('signup') || url.includes('register')) scores.authentication += 0.5;
-  if (url.includes('search')) scores.search += 0.5;
-  if (url.includes('checkout') || url.includes('cart') || url.includes('payment')) scores.checkout += 0.6;
-  if (url.includes('dashboard') || url.includes('account') || url.includes('profile')) scores.dashboard += 0.5;
+  if (url.includes("login") || url.includes("signin") || url.includes("auth"))
+    scores.authentication += 0.5;
+  if (url.includes("signup") || url.includes("register"))
+    scores.authentication += 0.5;
+  if (url.includes("search")) scores.search += 0.5;
+  if (
+    url.includes("checkout") ||
+    url.includes("cart") ||
+    url.includes("payment")
+  )
+    scores.checkout += 0.6;
+  if (
+    url.includes("dashboard") ||
+    url.includes("account") ||
+    url.includes("profile")
+  )
+    scores.dashboard += 0.5;
 
   // Content-based scoring from forms
-  forms.forEach(form => {
+  forms.forEach((form) => {
     scores.form_submission += 0.2;
-    if(form.fields.some(f => f.type === 'password')) scores.authentication += 0.4;
-    if(form.fields.some(f => f.selector.includes('card') || f.selector.includes('payment'))) scores.checkout += 0.3;
+    if (form.fields.some((f) => f.type === "password"))
+      scores.authentication += 0.4;
+    if (
+      form.fields.some(
+        (f) => f.selector.includes("card") || f.selector.includes("payment"),
+      )
+    )
+      scores.checkout += 0.3;
   });
-  
+
   // Content-based scoring from actions
-  actions.forEach(action => {
-      const lowerLabel = action.label.toLowerCase();
-      if(lowerLabel.includes('search')) scores.search += 0.3;
-      if(lowerLabel.includes('login') || lowerLabel.includes('sign in')) scores.authentication += 0.3;
-      if(lowerLabel.includes('pay') || lowerLabel.includes('checkout')) scores.checkout += 0.3;
+  actions.forEach((action) => {
+    const lowerLabel = action.label.toLowerCase();
+    if (lowerLabel.includes("search")) scores.search += 0.3;
+    if (lowerLabel.includes("login") || lowerLabel.includes("sign in"))
+      scores.authentication += 0.3;
+    if (lowerLabel.includes("pay") || lowerLabel.includes("checkout"))
+      scores.checkout += 0.3;
   });
-  
+
   const sortedIntents = Object.entries(scores).sort((a, b) => b[1] - a[1]);
   const [topIntent, topScore] = sortedIntents[0];
   const [, secondScore] = sortedIntents[1];
 
   // Only return a confident intent if there's a clear winner
-  if (topScore > 0 && (topScore - secondScore) >= INTENT_CONFIDENCE_THRESHOLD) {
+  if (topScore > 0 && topScore - secondScore >= INTENT_CONFIDENCE_THRESHOLD) {
     return topIntent as PageIntent;
   }
-  
-  return 'unknown';
-}
 
+  return "unknown";
+}
 
 // 5. Main Exported Function
 
@@ -437,10 +503,10 @@ function inferPageIntent(url: string, forms: FormContext[], actions: ActionCandi
  * @returns A PageContext object.
  */
 export function buildPageContext(
-  lastUserAction: UserAction | null
+  lastUserAction: UserAction | null,
 ): PageContext {
-  if (process.env.NODE_ENV === 'development') {
-    console.time('buildPageContext');
+  if (process.env.NODE_ENV === "development") {
+    console.time("buildPageContext");
   }
 
   const url = window.location.href;
@@ -449,13 +515,13 @@ export function buildPageContext(
   const forms = extractForms(document);
   const visibleActions = extractVisibleActions(document);
   const pageIntent = inferPageIntent(url, forms, visibleActions);
-  
+
   const lastActionRect = lastUserAction?.elementMetadata?.boundingBox
     ? DOMRect.fromRect(lastUserAction.elementMetadata.boundingBox)
     : null;
 
-  if (process.env.NODE_ENV === 'development') {
-    console.timeEnd('buildPageContext');
+  if (process.env.NODE_ENV === "development") {
+    console.timeEnd("buildPageContext");
   }
 
   return {

@@ -1,7 +1,8 @@
 // src/utils/aiProviderFactory.ts
 
-import { AIProvider } from '../types/ai';
-import { GeminiProvider } from './geminiProvider';
+import { AIProvider } from "../types/ai";
+import { GeminiProvider } from "./geminiProvider";
+import { ChatGPTProvider } from "./chatgptProvider";
 
 /**
  * A registry of available AI provider implementations.
@@ -18,6 +19,7 @@ import { GeminiProvider } from './geminiProvider';
  */
 const providerRegistry: Record<string, (apiKey: string) => AIProvider> = {
   gemini: (apiKey) => new GeminiProvider(apiKey),
+  chatgpt: (apiKey) => new ChatGPTProvider(apiKey),
   // nova: (apiKey) => new NovaProvider(apiKey), // Example for a future provider
 };
 
@@ -31,7 +33,7 @@ const providerRegistry: Record<string, (apiKey: string) => AIProvider> = {
  */
 export function createAIProvider(
   providerName: string,
-  apiKey: string
+  apiKey: string,
 ): AIProvider {
   const providerFactory = providerRegistry[providerName];
   if (!providerFactory) {

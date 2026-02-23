@@ -1,9 +1,9 @@
 // src/utils/geminiProvider.ts
 
-import { AIProvider, CompactContext, AIPrediction } from '../types/ai';
+import { AIProvider, CompactContext, AIPrediction } from "../types/ai";
 
 const GEMINI_API_ENDPOINT =
-  'https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent';
+  "https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent";
 
 /**
  * An AIProvider implementation that uses Google's Gemini Pro model.
@@ -22,20 +22,21 @@ export class GeminiProvider implements AIProvider {
 
   constructor(apiKey: string) {
     if (!apiKey) {
-      throw new Error('GeminiProvider requires an API key.');
+      throw new Error("GeminiProvider requires an API key.");
     }
     this.apiKey = apiKey;
   }
 
   async predictNextAction(context: CompactContext): Promise<AIPrediction> {
-    const { pageIntent, lastActionLabel, topVisibleActions, formFields } = context;
+    const { pageIntent, lastActionLabel, topVisibleActions, formFields } =
+      context;
 
     const prompt = `
       You are an expert at predicting user actions on a web page.
       Based on the provided context, predict the single most likely next action.
 
       Current Page Intent: ${pageIntent}
-      Last Action Taken: ${lastActionLabel || 'None'}
+      Last Action Taken: ${lastActionLabel || "None"}
       Visible Actions: ${JSON.stringify(topVisibleActions)}
       Available Form Fields: ${JSON.stringify(formFields)}
 
@@ -48,24 +49,27 @@ export class GeminiProvider implements AIProvider {
     `;
 
     try {
-      const response = await fetch(`${GEMINI_API_ENDPOINT}?key=${this.apiKey}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: {
-            response_mime_type: 'application/json',
-            temperature: 0.2,
-            maxOutputTokens: 2048,
+      const response = await fetch(
+        `${GEMINI_API_ENDPOINT}?key=${this.apiKey}`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
           },
-        }),
-      });
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: {
+              response_mime_type: "application/json",
+              temperature: 0.2,
+              maxOutputTokens: 2048,
+            },
+          }),
+        },
+      );
 
       if (!response.ok) {
         const errorBody = await response.text();
-        console.error('Gemini API request failed:', response.status, errorBody);
+        console.error("Gemini API request failed:", response.status, errorBody);
         throw new Error(`Gemini API error: ${response.status}`);
       }
 
@@ -77,15 +81,15 @@ export class GeminiProvider implements AIProvider {
       if (
         !prediction.predictedActionLabel ||
         !prediction.reasoning ||
-        typeof prediction.confidenceEstimate !== 'number'
+        typeof prediction.confidenceEstimate !== "number"
       ) {
-        throw new Error('Invalid JSON structure from Gemini API.');
+        throw new Error("Invalid JSON structure from Gemini API.");
       }
 
       return prediction;
     } catch (error) {
-      console.error('Error in GeminiProvider:', error);
-      throw new Error('Failed to get prediction from Gemini.');
+      console.error("Error in GeminiProvider:", error);
+      throw new Error("Failed to get prediction from Gemini.");
     }
   }
 }

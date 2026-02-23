@@ -1,8 +1,4 @@
-
-import {
-  RankedPrediction,
-  PredictionResult,
-} from "../utils/predictionEngine";
+import { RankedPrediction, PredictionResult } from "../utils/predictionEngine";
 
 const PANEL_ID = "__flow-agent-panel__";
 let onExecuteCallback: (prediction: RankedPrediction) => void;
@@ -104,7 +100,9 @@ const panelStyle = `
   }
 `;
 
-export function initAgentPanel(onExecute: (prediction: RankedPrediction) => void): void {
+export function initAgentPanel(
+  onExecute: (prediction: RankedPrediction) => void,
+): void {
   if (document.getElementById(PANEL_ID)) return;
 
   onExecuteCallback = onExecute;
@@ -137,7 +135,9 @@ export function initAgentPanel(onExecute: (prediction: RankedPrediction) => void
     </div>
   `;
 
-  const automodeToggle = shadowRoot.getElementById("automode-toggle") as HTMLInputElement;
+  const automodeToggle = shadowRoot.getElementById(
+    "automode-toggle",
+  ) as HTMLInputElement;
   automodeToggle.addEventListener("change", () => {
     autoModeEnabled = automodeToggle.checked;
   });
@@ -173,7 +173,11 @@ export function renderAgentPanel(result: PredictionResult): void {
     predictionsList.appendChild(item);
   });
 
-  if (autoModeEnabled && result.confidence > 0.6 && result.topThree.length > 0) {
+  if (
+    autoModeEnabled &&
+    result.confidence > 0.6 &&
+    result.topThree.length > 0
+  ) {
     onExecuteCallback(result.topThree[0]);
   }
 }
@@ -182,8 +186,12 @@ export function updateConfidenceIndicator(confidence: number): void {
   const shadowRoot = document.getElementById(PANEL_ID)?.shadowRoot;
   if (!shadowRoot) return;
 
-  const confidencePercent = shadowRoot.getElementById("confidence-percent") as HTMLSpanElement;
-  const confidenceFill = shadowRoot.getElementById("confidence-fill") as HTMLDivElement;
+  const confidencePercent = shadowRoot.getElementById(
+    "confidence-percent",
+  ) as HTMLSpanElement;
+  const confidenceFill = shadowRoot.getElementById(
+    "confidence-fill",
+  ) as HTMLDivElement;
 
   if (confidencePercent && confidenceFill) {
     const percent = Math.round(confidence * 100);
