@@ -1,10 +1,16 @@
 // src/utils/chatgptProvider.ts
 
-import { AIProvider, CompactContext, AIPrediction, FormFieldInfo, AIFormData } from "../types/ai";
+import {
+  AIProvider,
+  CompactContext,
+  AIPrediction,
+  FormFieldInfo,
+  AIFormData,
+} from "../types/ai";
 
 function aiLog(msg: string) {
   const now = new Date();
-  const ts = `${now.toLocaleTimeString('en-GB')}.${String(now.getMilliseconds()).padStart(3, '0')}`;
+  const ts = `${now.toLocaleTimeString("en-GB")}.${String(now.getMilliseconds()).padStart(3, "0")}`;
   console.log(`[AI Call Log] [${ts}] ${msg}`);
 }
 
@@ -65,7 +71,9 @@ export class ChatGPTProvider implements AIProvider {
   async predictNextAction(context: CompactContext): Promise<AIPrediction> {
     const prompt = this.buildPrompt(context);
 
-    aiLog(`[ChatGPT] predictNextAction START | Model: ${this.model} | Intent: ${context.pageIntent}`);
+    aiLog(
+      `[ChatGPT] predictNextAction START | Model: ${this.model} | Intent: ${context.pageIntent}`,
+    );
 
     try {
       const response = await fetch(OPENAI_API_ENDPOINT, {
@@ -93,7 +101,7 @@ export class ChatGPTProvider implements AIProvider {
         // Check for quota errors specifically
         if (response.status === 429) {
           const quotaError =
-           errorBody?.error?.code === "insufficient_quota" ||
+            errorBody?.error?.code === "insufficient_quota" ||
             errorBody?.error?.type === "insufficient_quota";
           if (quotaError) {
             console.warn(
@@ -168,11 +176,21 @@ export class ChatGPTProvider implements AIProvider {
   }
 
   private buildPrompt(context: CompactContext): string {
-    const { pageIntent, lastActionLabel, topVisibleActions, formFields } =
-      context;
+    const {
+      pageIntent,
+      lastActionLabel,
+      topVisibleActions,
+      formFields,
+      pageMeta,
+    } = context;
+
+    const metaSection = pageMeta
+      ? `\n      Page Metadata:\n        URL: ${pageMeta.url}\n        Title: ${pageMeta.title}\n        Description: ${pageMeta.description || "N/A"}\n        Site: ${pageMeta.ogSiteName || "N/A"}\n        Type: ${pageMeta.ogType || "N/A"}\n        Keywords: ${pageMeta.keywords || "N/A"}`
+      : "";
+
     return `
       Based on the provided context, predict the single most likely next action.
-
+      ${metaSection}
       Current Page Intent: ${pageIntent}
       Last Action Taken: ${lastActionLabel || "None"}
       Visible Actions: ${JSON.stringify(topVisibleActions)}
@@ -187,19 +205,27 @@ export class ChatGPTProvider implements AIProvider {
     `;
   }
 
-  async generateFormData(fields: FormFieldInfo[], pageContext?: string): Promise<AIFormData> {
-    aiLog(`[ChatGPT] generateFormData START | Model: ${this.model} | Fields: ${fields.length} | Context: ${pageContext || 'none'}`);
-    const fieldDescriptions = fields.map((f, i) => {
-      const parts: string[] = [`Field ${i + 1}:`];
-      if (f.name) parts.push(`name="${f.name}"`);
-      if (f.id) parts.push(`id="${f.id}"`);
-      parts.push(`type="${f.type}"`);
-      if (f.placeholder) parts.push(`placeholder="${f.placeholder}"`);
-      if (f.labelText) parts.push(`label="${f.labelText}"`);
-      if (f.ariaLabel) parts.push(`aria-label="${f.ariaLabel}"`);
-      if (f.options && f.options.length > 0) parts.push(`options=[${f.options.map(o => `"${o}"`).join(", ")}]`);
-      return parts.join(" ");
-    }).join("\n");
+  async generateFormData(
+    fields: FormFieldInfo[],
+    pageContext?: string,
+  ): Promise<AIFormData> {
+    aiLog(
+      `[ChatGPT] generateFormData START | Model: ${this.model} | Fields: ${fields.length} | Context: ${pageContext || "none"}`,
+    );
+    const fieldDescriptions = fields
+      .map((f, i) => {
+        const parts: string[] = [`Field ${i + 1}:`];
+        if (f.name) parts.push(`name="${f.name}"`);
+        if (f.id) parts.push(`id="${f.id}"`);
+        parts.push(`type="${f.type}"`);
+        if (f.placeholder) parts.push(`placeholder="${f.placeholder}"`);
+        if (f.labelText) parts.push(`label="${f.labelText}"`);
+        if (f.ariaLabel) parts.push(`aria-label="${f.ariaLabel}"`);
+        if (f.options && f.options.length > 0)
+          parts.push(`options=[${f.options.map((o) => `"${o}"`).join(", ")}]`);
+        return parts.join(" ");
+      })
+      .join("\n");
 
     const prompt = `
 You are a test data generator for web form automation.
@@ -215,7 +241,7 @@ Rules:
 - Emails should use @example.com or @test.com domains.
 - Passwords should be strong (12+ chars, mixed case, numbers, symbols).
 - Phone numbers should be in a valid format.
-- For select/dropdown fields with options listed, you MUST pick one of the provided options exactly as written.
+- For select/dropdown fields and radio button groups with options listed, you MUST pick one of the provided options exactly as written.
 - All generated values should be coherent with each other (e.g., same persona).
 
 Respond in STRICT JSON format:
@@ -251,7 +277,11 @@ Respond in STRICT JSON format:
       if (!response.ok) {
         const errorBody = await response.text();
         if (response.status !== 429) {
-          console.error("OpenAI form data request failed:", response.status, errorBody);
+          console.error(
+            "OpenAI form data request failed:",
+            response.status,
+            errorBody,
+          );
         }
         throw new Error(`OpenAI API error: ${response.status}`);
       }
@@ -260,7 +290,9 @@ Respond in STRICT JSON format:
       const messageContent = data.choices[0]?.message?.content;
 
       if (!messageContent) {
-        throw new Error("Invalid response structure from OpenAI API: No message content.");
+        throw new Error(
+          "Invalid response structure from OpenAI API: No message content.",
+        );
       }
 
       const jsonString = this.extractJson(messageContent);
@@ -270,12 +302,17 @@ Respond in STRICT JSON format:
         throw new Error("Invalid form data structure from OpenAI API.");
       }
 
-      aiLog(`[ChatGPT] generateFormData SUCCESS | Keys: ${Object.keys(parsed.fieldValues).join(', ')}`);
+      aiLog(
+        `[ChatGPT] generateFormData SUCCESS | Keys: ${Object.keys(parsed.fieldValues).join(", ")}`,
+      );
       return parsed;
     } catch (error) {
       aiLog(`[ChatGPT] generateFormData ERROR | ${error}`);
       console.error("Error generating form data with ChatGPT:", error);
-      if (error instanceof Error && error.message.startsWith("OpenAI API error")) {
+      if (
+        error instanceof Error &&
+        error.message.startsWith("OpenAI API error")
+      ) {
         throw error;
       }
       throw new Error("Failed to generate form data from OpenAI.");

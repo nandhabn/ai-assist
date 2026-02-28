@@ -296,7 +296,54 @@ export function generatePredictions(context: PageContext): PredictionResult {
   return { topThree, confidence: Math.max(0, Math.min(confidence, 1)) };
 }
 
-import { AIProvider, CompactContext, AIPrediction } from "../types/ai";
+import {
+  AIProvider,
+  CompactContext,
+  AIPrediction,
+  PageMeta,
+} from "../types/ai";
+
+// ===================================================================================
+// --- PAGE META EXTRACTION ---
+// ===================================================================================
+
+/**
+ * Extracts key metadata from the current page's <head> element.
+ * Reads meta description, Open Graph, Twitter Card, and canonical data.
+ * Designed to be cheap — only queries selectors once.
+ */
+function extractPageMeta(): PageMeta {
+  const getMeta = (selectors: string[]): string => {
+    for (const sel of selectors) {
+      try {
+        const el = document.querySelector(sel);
+        if (el) {
+          const val =
+            el.getAttribute("content") || el.getAttribute("href") || "";
+          if (val.trim()) return val.trim();
+        }
+      } catch (_) {}
+    }
+    return "";
+  };
+
+  return {
+    url: window.location.href,
+    title: document.title || "",
+    description: getMeta([
+      'meta[name="description"]',
+      'meta[property="og:description"]',
+      'meta[name="twitter:description"]',
+    ]),
+    ogType: getMeta(['meta[property="og:type"]', 'meta[name="twitter:card"]']),
+    ogSiteName: getMeta([
+      'meta[property="og:site_name"]',
+      'meta[name="application-name"]',
+    ]),
+    keywords: getMeta(['meta[name="keywords"]']),
+    canonical: getMeta(['link[rel="canonical"]', 'meta[property="og:url"]']),
+  };
+}
 
 // ===================================================================================
 // --- AI FALLBACK ORCHESTRATOR (v2 - Hardened) ---
@@ -360,6 +407,7 @@ function createCompactContext(context: PageContext): CompactContext {
     formFields: context.forms.flatMap((f) =>
       f.fields.map((field) => field.name),
     ),
+    pageMeta: extractPageMeta(),
   };
 }
 
@@ -1137,4 +1185,139 @@ async function __fillActiveForm(
 
 if (typeof window !== "undefined") {
   (window as any).__fillActiveForm = __fillActiveForm;
+
+  // Direct form-element filler — bypasses storage lookup.
+  // Used when we want to fill a specific form captured *before* an async AI call,
+  // so a later change in focus / lastUserAction can't derail it.
+  (window as any).__fillFormElement = async function (
+    form: HTMLFormElement,
+    dataMap: Record<string, any>,
+    options?: FillOptions,
+  ): Promise<void> {
+    if (!(form instanceof HTMLFormElement)) {
+      console.error(
+        "[Form Filler] __fillFormElement: received invalid form element.",
+      );
+      return;
+    }
+    console.log("[Form Filler] Filling pinned form element directly...");
+    const report = await fillFormFieldsDirect(form, dataMap, options ?? {});
+    console.log("%c[Form Filler] Operation Complete.", "font-weight: bold;");
+    console.table({
+      filled: { fields: report.filled.join(", ") || "None" },
+      skipped: { fields: report.skipped.join(", ") || "None" },
+      notFound: { fields: report.notFound.join(", ") || "None" },
+      errors: { count: report.errors.length },
+    });
+    if (report.errors.length > 0) {
+      report.errors.forEach((err, i) => {
+        console.error(
+          `[Form Filler] Error ${i + 1} on field "${err.field}": ${err.message}`,
+        );
+      });
+    }
+  };
+
+  /**
+   * Scans a form for visible validation errors after a fill/submit attempt.
+   * Checks: aria-invalid attributes, HTML5 validity API, common error-message
+   * class names, and role="alert" elements inside the form.
+   * Returns an array of { fieldId, fieldName, errorText } objects.
+   */
+  (window as any).__detectFormErrors = function (
+    form: HTMLFormElement,
+  ): { fieldId: string; fieldName: string; errorText: string }[] {
+    if (!(form instanceof HTMLFormElement)) return [];
+
+    const errors: { fieldId: string; fieldName: string; errorText: string }[] =
+      [];
+    const seen = new Set<string>(); // deduplicate by fieldId+fieldName key
+
+    const addError = (id: string, name: string, text: string) => {
+      const key = `${id}::${name}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        errors.push({
+          fieldId: id,
+          fieldName: name,
+          errorText: text || "Invalid value",
+        });
+      }
+    };
+
+    const getErrorMessage = (el: Element): string => {
+      // 1. aria-describedby
+      const describedBy = el.getAttribute("aria-describedby");
+      if (describedBy) {
+        const desc = describedBy
+          .split(/\s+/)
+          .map((id) => document.getElementById(id))
+          .find((d) => d?.textContent?.trim());
+        if (desc) return desc.textContent!.trim();
+      }
+      // 2. Sibling / child error elements in the same container
+      const container =
+        el.closest(
+          ".form-field, .form-group, .input-group, [class*='field'], [class*='Field'], [class*='control'], [class*='Control']",
+        ) || el.parentElement;
+      if (container) {
+        const msgEl = container.querySelector(
+          '.error, .error-message, .invalid-feedback, .field-error, .form-error, [class*="error"], [class*="Error"], [role="alert"]',
+        );
+        if (msgEl && msgEl !== el) {
+          const text = msgEl.textContent?.trim();
+          if (text) return text;
+        }
+      }
+      return "";
+    };
+
+    // --- Pass 1: aria-invalid fields ---
+    form.querySelectorAll('[aria-invalid="true"]').forEach((el) => {
+      const inp = el as HTMLInputElement;
+      addError(inp.id || "", inp.name || "", getErrorMessage(el));
+    });
+
+    // --- Pass 2: HTML5 native validity ---
+    form
+      .querySelectorAll<
+        HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
+      >("input, textarea, select")
+      .forEach((inp) => {
+        if (
+          (inp.validity &&
+            !inp.validity.valid &&
+            !inp.validity.valueMissing === false) ||
+          (inp.validity && !inp.validity.valid)
+        ) {
+          addError(inp.id || "", inp.name || "", inp.validationMessage || "");
+        }
+      });
+
+    // --- Pass 3: Error message elements with visible text ---
+    const ERROR_SELECTORS =
+      ".error-message, .invalid-feedback, .field-error, .form-error, " +
+      '[class*="error-text"], [class*="errorText"], [class*="ErrorText"], ' +
+      '[class*="validationMessage"], [class*="validation-message"], [role="alert"]';
+    form.querySelectorAll(ERROR_SELECTORS).forEach((msgEl) => {
+      const text = msgEl.textContent?.trim();
+      if (!text) return;
+      const container =
+        msgEl.closest(
+          ".form-field, .form-group, .input-group, [class*='field'], [class*='Field'], [class*='control'], [class*='Control']",
+        ) || msgEl.parentElement;
+      const inp = container?.querySelector<HTMLInputElement>(
+        "input, textarea, select",
+      );
+      if (inp) addError(inp.id || "", inp.name || "", text);
+    });
+
+    if (errors.length > 0) {
+      console.warn(
+        `[Form Filler] Detected ${errors.length} validation error(s):`,
+        errors,
+      );
+    }
+    return errors;
+  };
 }

@@ -3,34 +3,32 @@ import "../styles/RecorderControl.css";
 
 interface RecorderControlProps {
   onRecordingChange: (isRecording: boolean) => void;
+  isAgentEnabled: boolean;
+  onToggleAgent: () => void;
+  isChatGPTTab?: boolean;
 }
 
 export default function RecorderControl({
   onRecordingChange,
+  isAgentEnabled,
+  onToggleAgent,
+  isChatGPTTab = false,
 }: RecorderControlProps) {
   const [isRecording, setIsRecording] = React.useState(false);
-  const [isAgentEnabled, setIsAgentEnabled] = React.useState(true);
   const [buttonLoading, setButtonLoading] = React.useState(false);
 
   React.useEffect(() => {
     // Check initial recording status
-    chrome.storage.local.get(
-      ["flowRecorder_isRecording", "flowRecorder_agentEnabled"],
-      (data) => {
-        setIsRecording(data.flowRecorder_isRecording || false);
-        setIsAgentEnabled(data.flowRecorder_agentEnabled !== false);
-      },
-    );
+    chrome.storage.local.get(["flowRecorder_isRecording"], (data) => {
+      setIsRecording(data.flowRecorder_isRecording || false);
+    });
 
-    // Listen for storage changes
+    // Listen for recording status changes
     const handleStorageChange = (changes: {
       [key: string]: chrome.storage.StorageChange;
     }) => {
       if (changes.flowRecorder_isRecording) {
         setIsRecording(changes.flowRecorder_isRecording.newValue || false);
-      }
-      if (changes.flowRecorder_agentEnabled) {
-        setIsAgentEnabled(changes.flowRecorder_agentEnabled.newValue !== false);
       }
     };
 
@@ -90,27 +88,8 @@ export default function RecorderControl({
     }
   };
 
-  const handleToggleAgent = async () => {
-    const newStatus = !isAgentEnabled;
-    setIsAgentEnabled(newStatus);
-
-    try {
-      // Update storage
-      await chrome.storage.local.set({ flowRecorder_agentEnabled: newStatus });
-
-      // Notify content script
-      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-        if (tabs[0]?.id) {
-          chrome.tabs.sendMessage(tabs[0].id, {
-            action: "TOGGLE_AGENT",
-            enabled: newStatus,
-          });
-        }
-      });
-    } catch (error) {
-      console.error("Failed to toggle agent:", error);
-      setIsAgentEnabled(!newStatus); // Revert on error
-    }
+  const handleToggleAgent = () => {
+    onToggleAgent();
   };
 
   return (
@@ -154,16 +133,21 @@ export default function RecorderControl({
           <div className="toggle-info">
             <span className="toggle-label">AI Prediction Assistant</span>
             <span className="toggle-description">
-              {isAgentEnabled
-                ? "Agent is active and predicting next actions"
-                : "Agent is disabled - no predictions shown"}
+              {isChatGPTTab
+                ? "Agent disabled on ChatGPT — bridge handles prompt injection"
+                : isAgentEnabled
+                  ? "Agent is active and predicting next actions"
+                  : "Agent is disabled - no predictions shown"}
             </span>
           </div>
-          <label className="toggle-switch">
+          <label
+            className={`toggle-switch${isChatGPTTab ? " toggle-switch--disabled" : ""}`}
+          >
             <input
               type="checkbox"
               checked={isAgentEnabled}
               onChange={handleToggleAgent}
+              disabled={isChatGPTTab}
             />
             <span className="toggle-slider"></span>
           </label>

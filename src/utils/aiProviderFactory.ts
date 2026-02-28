@@ -3,23 +3,12 @@
 import { AIProvider } from "../types/ai";
 import { GeminiProvider } from "./geminiProvider";
 import { ChatGPTProvider } from "./chatgptProvider";
+import { ChatGPTTabProvider } from "./chatgptTabProvider";
 
-/**
- * A registry of available AI provider implementations.
- * This pattern allows for the dynamic selection of a provider based on configuration,
- * making the system provider-agnostic.
- *
- * @Architectural-Note To add a new provider (e.g., 'NovaProvider'), you would:
- * 1. Implement the `AIProvider` interface in a new file (e.g., `novaProvider.ts`).
- * 2. Import it here.
- * 3. Add a new entry to the `providerRegistry`, like:
- *    `nova: (apiKey) => new NovaProvider(apiKey)`
- * The rest of the application can then select 'nova' via configuration without
- * needing any other code changes.
- */
 const providerRegistry: Record<string, (apiKey: string) => AIProvider> = {
   gemini: (apiKey) => new GeminiProvider(apiKey),
   chatgpt: (apiKey) => new ChatGPTProvider(apiKey),
+  "chatgpt-tab": (_apiKey) => new ChatGPTTabProvider(),
   // nova: (apiKey) => new NovaProvider(apiKey), // Example for a future provider
 };
 

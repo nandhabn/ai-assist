@@ -21,6 +21,11 @@
       "type": "module",
       "all_frames": false,
       "run_at": "document_end"
+    },
+    {
+      "matches": ["https://chatgpt.com/*", "https://chat.openai.com/*"],
+      "js": ["chatgptBridge.js"],
+      "run_at": "document_idle"
     }
   ],
   "icons": {}

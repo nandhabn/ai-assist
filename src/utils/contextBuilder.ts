@@ -21,6 +21,8 @@ export type PageIntent =
   | "form_submission"
   | "navigation"
   | "dashboard"
+  | "social_media"
+  | "content_feed"
   | "unknown";
 
 /**
@@ -422,6 +424,13 @@ function inferPageIntent(
   url: string,
   forms: FormContext[],
   actions: ActionCandidate[],
+  title?: string,
+  meta?: {
+    description?: string;
+    ogType?: string;
+    ogSiteName?: string;
+    keywords?: string;
+  },
 ): PageIntent {
   const scores: Record<PageIntent, number> = {
     authentication: 0,
@@ -430,10 +439,35 @@ function inferPageIntent(
     form_submission: 0,
     navigation: 0,
     dashboard: 0,
+    social_media: 0,
+    content_feed: 0,
     unknown: 0,
   };
 
-  // URL-based scoring
+  // Hostname-based scoring (cheap, high signal)
+  let hostname = "";
+  try {
+    hostname = new URL(url).hostname.replace(/^www\./, "");
+  } catch (_) {}
+
+  const SOCIAL_HOSTS: Record<string, PageIntent> = {
+    "x.com": "social_media",
+    "twitter.com": "social_media",
+    "instagram.com": "social_media",
+    "facebook.com": "social_media",
+    "threads.net": "social_media",
+    "linkedin.com": "social_media",
+    "reddit.com": "content_feed",
+    "news.ycombinator.com": "content_feed",
+    "medium.com": "content_feed",
+    "substack.com": "content_feed",
+    "youtube.com": "content_feed",
+  };
+  if (SOCIAL_HOSTS[hostname]) {
+    scores[SOCIAL_HOSTS[hostname]] += 0.7;
+  }
+
+  // URL path-based scoring
   if (url.includes("login") || url.includes("signin") || url.includes("auth"))
     scores.authentication += 0.5;
   if (url.includes("signup") || url.includes("register"))
@@ -451,6 +485,94 @@ function inferPageIntent(
     url.includes("profile")
   )
     scores.dashboard += 0.5;
+  if (
+    url.includes("/feed") ||
+    url.includes("/home") ||
+    url.includes("/timeline")
+  )
+    scores.content_feed += 0.3;
+
+  // Title-based scoring
+  if (title) {
+    const t = title.toLowerCase();
+    if (t.includes("login") || t.includes("sign in"))
+      scores.authentication += 0.3;
+    if (t.includes("search")) scores.search += 0.3;
+    if (t.includes("checkout") || t.includes("payment")) scores.checkout += 0.3;
+    if (t.includes("dashboard")) scores.dashboard += 0.3;
+    if (t.includes("feed") || t.includes("home") || t.includes("timeline"))
+      scores.content_feed += 0.2;
+  }
+
+  // Meta-tag-based scoring (description, og:type, og:site_name, keywords)
+  if (meta) {
+    const desc = (meta.description || "").toLowerCase();
+    const ogType = (meta.ogType || "").toLowerCase();
+    const siteName = (meta.ogSiteName || "").toLowerCase();
+    const kw = (meta.keywords || "").toLowerCase();
+    const metaText = `${desc} ${kw}`;
+
+    // og:type is very reliable for social/article pages
+    if (ogType === "profile" || ogType === "article" || ogType === "website") {
+      // Check siteName for social platform identification
+      const socialSiteNames = [
+        "twitter",
+        "x",
+        "facebook",
+        "instagram",
+        "linkedin",
+        "threads",
+      ];
+      if (socialSiteNames.some((s) => siteName.includes(s)))
+        scores.social_media += 0.4;
+    }
+
+    // Description keywords
+    if (
+      metaText.includes("social") ||
+      metaText.includes("tweet") ||
+      metaText.includes("post")
+    )
+      scores.social_media += 0.2;
+    if (
+      metaText.includes("login") ||
+      metaText.includes("sign in") ||
+      metaText.includes("authenticate")
+    )
+      scores.authentication += 0.3;
+    if (
+      metaText.includes("search") ||
+      metaText.includes("find") ||
+      metaText.includes("discover")
+    )
+      scores.search += 0.2;
+    if (
+      metaText.includes("checkout") ||
+      metaText.includes("payment") ||
+      metaText.includes("cart") ||
+      metaText.includes("buy")
+    )
+      scores.checkout += 0.3;
+    if (
+      metaText.includes("dashboard") ||
+      metaText.includes("analytics") ||
+      metaText.includes("overview")
+    )
+      scores.dashboard += 0.2;
+    if (
+      metaText.includes("news") ||
+      metaText.includes("feed") ||
+      metaText.includes("blog") ||
+      metaText.includes("article")
+    )
+      scores.content_feed += 0.2;
+    if (
+      metaText.includes("shop") ||
+      metaText.includes("product") ||
+      metaText.includes("store")
+    )
+      scores.navigation += 0.2;
+  }
 
   // Content-based scoring from forms
   forms.forEach((form) => {
@@ -473,6 +595,22 @@ function inferPageIntent(
       scores.authentication += 0.3;
     if (lowerLabel.includes("pay") || lowerLabel.includes("checkout"))
       scores.checkout += 0.3;
+    // Social media action labels
+    if (
+      lowerLabel.includes("follow") ||
+      lowerLabel.includes("reply") ||
+      lowerLabel.includes("repost") ||
+      lowerLabel.includes("retweet") ||
+      lowerLabel.includes("like") ||
+      lowerLabel.includes("tweet") ||
+      lowerLabel.includes("post") ||
+      lowerLabel.includes("share") ||
+      lowerLabel.includes("comment") ||
+      lowerLabel.includes("subscribe") ||
+      lowerLabel.includes("new posts") ||
+      lowerLabel.includes("views")
+    )
+      scores.social_media += 0.2;
   });
 
   const sortedIntents = Object.entries(scores).sort((a, b) => b[1] - a[1]);
@@ -517,7 +655,28 @@ export function buildPageContext(
 
   const forms = extractForms(document);
   const visibleActions = extractVisibleActions(document);
-  const pageIntent = inferPageIntent(url, forms, visibleActions);
+
+  // Extract meta tags for intent inference
+  const getMeta = (sel: string): string =>
+    document.querySelector(sel)?.getAttribute("content")?.trim() || "";
+  const metaInfo = {
+    description:
+      getMeta('meta[name="description"]') ||
+      getMeta('meta[property="og:description"]'),
+    ogType: getMeta('meta[property="og:type"]'),
+    ogSiteName:
+      getMeta('meta[property="og:site_name"]') ||
+      getMeta('meta[name="application-name"]'),
+    keywords: getMeta('meta[name="keywords"]'),
+  };
+
+  const pageIntent = inferPageIntent(
+    url,
+    forms,
+    visibleActions,
+    title,
+    metaInfo,
+  );
 
   const lastActionRect = lastUserAction?.elementMetadata?.boundingBox
     ? DOMRect.fromRect(lastUserAction.elementMetadata.boundingBox)

@@ -10,7 +10,7 @@ export interface FormFieldInfo {
   placeholder: string;
   labelText: string;
   ariaLabel: string;
-  /** Available options for select/dropdown fields (excludes empty/placeholder options). */
+  /** Available options for select/dropdown and radio group fields (excludes empty/placeholder options). */
   options?: string[];
 }
 
@@ -46,7 +46,23 @@ export interface AIProvider {
    * @param pageContext Optional string describing the page context (e.g., "signup form", "checkout").
    * @returns A promise that resolves to an AIFormData object with generated values.
    */
-  generateFormData(fields: FormFieldInfo[], pageContext?: string): Promise<AIFormData>;
+  generateFormData(
+    fields: FormFieldInfo[],
+    pageContext?: string,
+  ): Promise<AIFormData>;
+}
+
+/**
+ * Key metadata extracted from the page's <head> for richer AI context.
+ */
+export interface PageMeta {
+  url: string;
+  title: string;
+  description: string;
+  ogType: string;
+  ogSiteName: string;
+  keywords: string;
+  canonical: string;
 }
 
 /**
@@ -70,6 +86,10 @@ export interface CompactContext {
    * A list of labels or identifiers for available form fields.
    */
   formFields: string[];
+  /**
+   * Key metadata extracted from the page's meta tags, OG tags, etc.
+   */
+  pageMeta?: PageMeta;
 }
 
 /**

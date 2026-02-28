@@ -14,8 +14,11 @@
 export const AI_CONFIG = {
   gemini: import.meta.env.VITE_GEMINI_API_KEY,
   chatgpt: import.meta.env.VITE_OPENAI_API_KEY,
+  /** Always true — ChatGPT Tab provider works as long as chatgpt.com is open */
+  chatgptTab: true,
 };
 
+console.log("AI", AI_CONFIG.chatgptTab);
 // --- Developer Experience & Security Warnings ---
 
 // 1. Warn if keys are missing during development for a better DX.

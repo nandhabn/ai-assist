@@ -144,13 +144,11 @@ export function exportFlowAsMarkdown(flowData: FlowDataPackage) {
   lines.push("```json");
   lines.push(
     JSON.stringify(
-      flowData.events
-        .slice(0, 10)
-        .map((e) => ({
-          action: e.actionType,
-          url: e.url,
-          selector: e.selector?.css,
-        })),
+      flowData.events.slice(0, 10).map((e) => ({
+        action: e.actionType,
+        url: e.url,
+        selector: e.selector?.css,
+      })),
       null,
       2,
     ),

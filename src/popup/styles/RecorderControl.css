@@ -142,3 +142,12 @@
 .toggle-switch input:focus + .toggle-slider {
   box-shadow: 0 0 1px var(--secondary-color);
 }
+
+.toggle-switch--disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.toggle-switch--disabled .toggle-slider {
+  cursor: not-allowed;
+}

@@ -1,10 +1,16 @@
 // src/utils/geminiProvider.ts
 
-import { AIProvider, CompactContext, AIPrediction, FormFieldInfo, AIFormData } from "../types/ai";
+import {
+  AIProvider,
+  CompactContext,
+  AIPrediction,
+  FormFieldInfo,
+  AIFormData,
+} from "../types/ai";
 
 function aiLog(msg: string) {
   const now = new Date();
-  const ts = `${now.toLocaleTimeString('en-GB')}.${String(now.getMilliseconds()).padStart(3, '0')}`;
+  const ts = `${now.toLocaleTimeString("en-GB")}.${String(now.getMilliseconds()).padStart(3, "0")}`;
   console.log(`[AI Call Log] [${ts}] ${msg}`);
 }
 
@@ -34,15 +40,26 @@ export class GeminiProvider implements AIProvider {
   }
 
   async predictNextAction(context: CompactContext): Promise<AIPrediction> {
-    const { pageIntent, lastActionLabel, topVisibleActions, formFields } =
-      context;
+    const {
+      pageIntent,
+      lastActionLabel,
+      topVisibleActions,
+      formFields,
+      pageMeta,
+    } = context;
 
-    aiLog(`[Gemini] predictNextAction START | Intent: ${pageIntent} | Actions: ${topVisibleActions.length} | Fields: ${formFields.length}`);
+    aiLog(
+      `[Gemini] predictNextAction START | Intent: ${pageIntent} | Actions: ${topVisibleActions.length} | Fields: ${formFields.length}`,
+    );
+
+    const metaSection = pageMeta
+      ? `\n      Page Metadata:\n        URL: ${pageMeta.url}\n        Title: ${pageMeta.title}\n        Description: ${pageMeta.description || "N/A"}\n        Site: ${pageMeta.ogSiteName || "N/A"}\n        Type: ${pageMeta.ogType || "N/A"}\n        Keywords: ${pageMeta.keywords || "N/A"}`
+      : "";
 
     const prompt = `
       You are an expert at predicting user actions on a web page.
       Based on the provided context, predict the single most likely next action.
-
+      ${metaSection}
       Current Page Intent: ${pageIntent}
       Last Action Taken: ${lastActionLabel || "None"}
       Visible Actions: ${JSON.stringify(topVisibleActions)}
@@ -103,19 +120,27 @@ export class GeminiProvider implements AIProvider {
     }
   }
 
-  async generateFormData(fields: FormFieldInfo[], pageContext?: string): Promise<AIFormData> {
-    aiLog(`[Gemini] generateFormData START | Fields: ${fields.length} | Context: ${pageContext || 'none'}`);
-    const fieldDescriptions = fields.map((f, i) => {
-      const parts: string[] = [`Field ${i + 1}:`];
-      if (f.name) parts.push(`name="${f.name}"`);
-      if (f.id) parts.push(`id="${f.id}"`);
-      parts.push(`type="${f.type}"`);
-      if (f.placeholder) parts.push(`placeholder="${f.placeholder}"`);
-      if (f.labelText) parts.push(`label="${f.labelText}"`);
-      if (f.ariaLabel) parts.push(`aria-label="${f.ariaLabel}"`);
-      if (f.options && f.options.length > 0) parts.push(`options=[${f.options.map(o => `"${o}"`).join(", ")}]`);
-      return parts.join(" ");
-    }).join("\n");
+  async generateFormData(
+    fields: FormFieldInfo[],
+    pageContext?: string,
+  ): Promise<AIFormData> {
+    aiLog(
+      `[Gemini] generateFormData START | Fields: ${fields.length} | Context: ${pageContext || "none"}`,
+    );
+    const fieldDescriptions = fields
+      .map((f, i) => {
+        const parts: string[] = [`Field ${i + 1}:`];
+        if (f.name) parts.push(`name="${f.name}"`);
+        if (f.id) parts.push(`id="${f.id}"`);
+        parts.push(`type="${f.type}"`);
+        if (f.placeholder) parts.push(`placeholder="${f.placeholder}"`);
+        if (f.labelText) parts.push(`label="${f.labelText}"`);
+        if (f.ariaLabel) parts.push(`aria-label="${f.ariaLabel}"`);
+        if (f.options && f.options.length > 0)
+          parts.push(`options=[${f.options.map((o) => `"${o}"`).join(", ")}]`);
+        return parts.join(" ");
+      })
+      .join("\n");
 
     const prompt = `
 You are a test data generator for web form automation.
@@ -131,7 +156,7 @@ Rules:
 - Emails should use @example.com or @test.com domains.
 - Passwords should be strong (12+ chars, mixed case, numbers, symbols).
 - Phone numbers should be in a valid format.
-- For select/dropdown fields with options listed, you MUST pick one of the provided options exactly as written.
+- For select/dropdown fields and radio button groups with options listed, you MUST pick one of the provided options exactly as written.
 - All generated values should be coherent with each other (e.g., same persona).
 
 Respond in STRICT JSON format:
@@ -163,7 +188,11 @@ Respond in STRICT JSON format:
       if (!response.ok) {
         const errorBody = await response.text();
         aiLog(`[Gemini] generateFormData FAILED | Status: ${response.status}`);
-        console.error("Gemini API form data request failed:", response.status, errorBody);
+        console.error(
+          "Gemini API form data request failed:",
+          response.status,
+          errorBody,
+        );
         throw new Error(`Gemini API error: ${response.status}`);
       }
 
@@ -175,7 +204,9 @@ Respond in STRICT JSON format:
         throw new Error("Invalid form data structure from Gemini API.");
       }
 
-      aiLog(`[Gemini] generateFormData SUCCESS | Keys: ${Object.keys(parsed.fieldValues).join(', ')}`);
+      aiLog(
+        `[Gemini] generateFormData SUCCESS | Keys: ${Object.keys(parsed.fieldValues).join(", ")}`,
+      );
       return parsed;
     } catch (error) {
       aiLog(`[Gemini] generateFormData ERROR | ${error}`);

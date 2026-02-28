@@ -29,6 +29,9 @@ import {
   renderAgentPanel,
   toggleAgentPanelVisibility,
   setAIThinking,
+  showFormDetectedBanner,
+  hideFormDetectedBanner,
+  setAutofillTargetForm,
 } from "./agentPanel";
 import { createAIProvider } from "@/utils/aiProviderFactory";
 import { AI_CONFIG } from "@/config/aiConfig";
@@ -64,20 +67,28 @@ let aiProvider: AIProvider | null | undefined = undefined;
 // --- AI Call Logger with timestamp ---
 function aiLog(msg: string) {
   const now = new Date();
-  const ts = `${now.toLocaleTimeString('en-GB')}.${String(now.getMilliseconds()).padStart(3, '0')}`;
+  const ts = `${now.toLocaleTimeString("en-GB")}.${String(now.getMilliseconds()).padStart(3, "0")}`;
   console.log(`[AI Call Log] [${ts}] ${msg}`);
 }
 
 // --- Unified AI Rate Limiter ---
 // State lives on `window` so all script instances (double-injection) share it
-const AI_MIN_INTERVAL = 10000;         // 10s minimum between any AI call
-const AI_MAX_CALLS_PER_WINDOW = 4;     // Max 4 AI calls per window
-const AI_WINDOW_DURATION = 120000;     // 2-minute sliding window
+const AI_MIN_INTERVAL = 10000; // 10s minimum between any AI call
+const AI_MAX_CALLS_PER_WINDOW = 4; // Max 4 AI calls per window
+const AI_WINDOW_DURATION = 120000; // 2-minute sliding window
 
-type RateLimiterState = { lastCall: number; count: number; windowStart: number };
+type RateLimiterState = {
+  lastCall: number;
+  count: number;
+  windowStart: number;
+};
 function getRLState(): RateLimiterState {
   if (!(window as any).__aiRateLimiter) {
-    (window as any).__aiRateLimiter = { lastCall: 0, count: 0, windowStart: Date.now() };
+    (window as any).__aiRateLimiter = {
+      lastCall: 0,
+      count: 0,
+      windowStart: Date.now(),
+    };
   }
   return (window as any).__aiRateLimiter as RateLimiterState;
 }
@@ -89,14 +100,18 @@ function canMakeAICall(): boolean {
     s.count = 0;
     s.windowStart = now;
   }
-  return now - s.lastCall >= AI_MIN_INTERVAL && s.count < AI_MAX_CALLS_PER_WINDOW;
+  return (
+    now - s.lastCall >= AI_MIN_INTERVAL && s.count < AI_MAX_CALLS_PER_WINDOW
+  );
 }
 
 function recordAICall() {
   const s = getRLState();
   s.lastCall = Date.now();
   s.count++;
-  aiLog(`API call recorded | Count this window: ${s.count}/${AI_MAX_CALLS_PER_WINDOW} | Window resets in: ${Math.round((AI_WINDOW_DURATION - (Date.now() - s.windowStart)) / 1000)}s`);
+  aiLog(
+    `API call recorded | Count this window: ${s.count}/${AI_MAX_CALLS_PER_WINDOW} | Window resets in: ${Math.round((AI_WINDOW_DURATION - (Date.now() - s.windowStart)) / 1000)}s`,
+  );
 }
 
 // --- Autofill AI Cache ---
@@ -147,18 +162,29 @@ async function init() {
  */
 async function generateAutofillData(
   fields: FormFieldInfo[],
+  retryContext?: {
+    fieldErrors: { fieldId: string; fieldName: string; errorText: string }[];
+  },
 ): Promise<Record<string, string>> {
   // Prevent concurrent generation
   if (isAutofillGenerating) {
-    console.log("[Flow Agent] Autofill generation already in progress, waiting...");
+    console.log(
+      "[Flow Agent] Autofill generation already in progress, waiting...",
+    );
     // Return cached data if available, otherwise fallback
     return cachedAutofillData || generateBasicFormData(fields);
   }
 
   // Build a cache key from field identifiers to detect same form
-  const fieldsKey = fields.map(f => `${f.name}|${f.id}|${f.type}`).join(";");
+  const fieldsKey = fields.map((f) => `${f.name}|${f.id}|${f.type}`).join(";");
 
-  // Return cached data if the form hasn't changed
+  // On retry, always bust the cache so the AI gets a fresh chance with error context
+  if (retryContext?.fieldErrors.length) {
+    cachedAutofillData = null;
+    cachedAutofillFieldsKey = null;
+  }
+
+  // Return cached data if the form hasn't changed (first-fill only)
   if (cachedAutofillData && cachedAutofillFieldsKey === fieldsKey) {
     console.log("[Flow Agent] Returning cached AI form data");
     return cachedAutofillData;
@@ -172,22 +198,43 @@ async function generateAutofillData(
   if (aiProvider && canMakeAICall()) {
     isAutofillGenerating = true;
     try {
-      aiLog(`Form data AI call triggered | Fields: ${fields.length} | Page: ${document.title || window.location.pathname}`);
+      aiLog(
+        `Form data AI call triggered | Fields: ${fields.length} | Page: ${document.title || window.location.pathname}`,
+      );
       recordAICall();
       console.log("[Flow Agent] Requesting AI-generated form data...");
       const pageContext = document.title || window.location.pathname;
-      const result = await aiProvider.generateFormData(fields, pageContext);
+      // When retrying after validation errors, embed the error details so the AI
+      // can correct the problematic field values.
+      const enrichedContext = retryContext?.fieldErrors.length
+        ? `${pageContext}. Previous fill attempt had validation errors — please correct: ` +
+          retryContext.fieldErrors
+            .map((e) => `"${e.fieldName || e.fieldId}": ${e.errorText}`)
+            .join("; ")
+        : pageContext;
+      const result = await aiProvider.generateFormData(fields, enrichedContext);
 
       if (result.fieldValues && Object.keys(result.fieldValues).length > 0) {
-        aiLog(`Form data AI call SUCCESS | Fields generated: ${Object.keys(result.fieldValues).length}`);
-        console.log("[Flow Agent] AI-generated form data received:", result.fieldValues);
+        aiLog(
+          `Form data AI call SUCCESS | Fields generated: ${Object.keys(result.fieldValues).length}`,
+        );
+        console.log(
+          "[Flow Agent] AI-generated form data received:",
+          result.fieldValues,
+        );
 
         // Expand the AI-generated data to include multiple key variants
         // so findBestFieldMatch in the form filler can match by name, id, label, etc.
         const expandedData: Record<string, string> = {};
         for (const field of fields) {
           // Find the AI-generated value for this field by checking all identifiers
-          const identifiers = [field.name, field.id, field.labelText, field.ariaLabel, field.placeholder].filter(Boolean);
+          const identifiers = [
+            field.name,
+            field.id,
+            field.labelText,
+            field.ariaLabel,
+            field.placeholder,
+          ].filter(Boolean);
           let value: string | undefined;
 
           for (const key of identifiers) {
@@ -199,7 +246,8 @@ async function generateAutofillData(
 
           // Also check normalized keys (lowercased, no separators)
           if (!value) {
-            const normalize = (s: string) => (s || "").toLowerCase().replace(/[\s_-]/g, "");
+            const normalize = (s: string) =>
+              (s || "").toLowerCase().replace(/[\s_-]/g, "");
             for (const key of identifiers) {
               const normKey = normalize(key);
               for (const [aiKey, aiVal] of Object.entries(result.fieldValues)) {
@@ -227,16 +275,23 @@ async function generateAutofillData(
       }
     } catch (error) {
       aiLog(`Form data AI call FAILED | Error: ${error}`);
-      console.warn("[Flow Agent] AI form data generation failed, falling back to basic generator:", error);
+      console.warn(
+        "[Flow Agent] AI form data generation failed, falling back to basic generator:",
+        error,
+      );
     } finally {
       isAutofillGenerating = false;
     }
   } else if (!aiProvider) {
     aiLog("Form data AI call SKIPPED (no provider configured)");
-    console.log("[Flow Agent] No AI provider available, using basic data generator");
+    console.log(
+      "[Flow Agent] No AI provider available, using basic data generator",
+    );
   } else {
     const s = getRLState();
-    aiLog(`Form data AI call SKIPPED (rate limited) | Calls this window: ${s.count}/${AI_MAX_CALLS_PER_WINDOW} | Cooldown remaining: ${Math.max(0, Math.round((AI_MIN_INTERVAL - (Date.now() - s.lastCall)) / 1000))}s`);
+    aiLog(
+      `Form data AI call SKIPPED (rate limited) | Calls this window: ${s.count}/${AI_MAX_CALLS_PER_WINDOW} | Cooldown remaining: ${Math.max(0, Math.round((AI_MIN_INTERVAL - (Date.now() - s.lastCall)) / 1000))}s`,
+    );
     console.log("[Flow Agent] AI rate limited, using basic data generator");
   }
 
@@ -251,44 +306,75 @@ async function generateAutofillData(
  * Basic fallback data generator (used when AI is unavailable).
  * Generates simple test data based on field type heuristics.
  */
-function generateBasicFormData(fields: FormFieldInfo[]): Record<string, string> {
+function generateBasicFormData(
+  fields: FormFieldInfo[],
+): Record<string, string> {
   const data: Record<string, string> = {};
-  const normalize = (str: string): string => (str || "").toLowerCase().replace(/[\s_-]/g, "");
+  const normalize = (str: string): string =>
+    (str || "").toLowerCase().replace(/[\s_-]/g, "");
 
   const randomString = (len: number) => {
     const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
-    return Array.from({ length: len }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
+    return Array.from(
+      { length: len },
+      () => chars[Math.floor(Math.random() * chars.length)],
+    ).join("");
   };
 
   const firstName = "Alex";
   const lastName = "Johnson";
   const email = `alex.johnson${Math.floor(Math.random() * 1000)}@example.com`;
   const password = `Test!${randomString(8)}#1`;
-  const phone = "+1-555-" + Math.floor(Math.random() * 900 + 100) + "-" + Math.floor(Math.random() * 9000 + 1000);
+  const phone =
+    "+1-555-" +
+    Math.floor(Math.random() * 900 + 100) +
+    "-" +
+    Math.floor(Math.random() * 9000 + 1000);
 
   for (const field of fields) {
-    const hints = [field.name, field.id, field.placeholder, field.labelText, field.ariaLabel]
+    const hints = [
+      field.name,
+      field.id,
+      field.placeholder,
+      field.labelText,
+      field.ariaLabel,
+    ]
       .map(normalize)
       .join(" ");
     const type = field.type.toLowerCase();
 
     let value = "";
     if (field.options && field.options.length > 0) {
-      // For select/dropdown fields, pick the first valid option
+      // For select/dropdown and radio group fields, pick the first valid option
       value = field.options[0];
     } else if (type === "email" || hints.includes("email")) value = email;
-    else if (type === "password" || hints.includes("password")) value = password;
-    else if (type === "tel" || hints.includes("phone") || hints.includes("mobile")) value = phone;
-    else if (hints.includes("firstname") || hints.includes("first")) value = firstName;
-    else if (hints.includes("lastname") || hints.includes("last")) value = lastName;
+    else if (type === "password" || hints.includes("password"))
+      value = password;
+    else if (
+      type === "tel" ||
+      hints.includes("phone") ||
+      hints.includes("mobile")
+    )
+      value = phone;
+    else if (hints.includes("firstname") || hints.includes("first"))
+      value = firstName;
+    else if (hints.includes("lastname") || hints.includes("last"))
+      value = lastName;
     else if (hints.includes("name")) value = `${firstName} ${lastName}`;
-    else if (type === "number") value = String(Math.floor(Math.random() * 10000));
+    else if (type === "number")
+      value = String(Math.floor(Math.random() * 10000));
     else if (type === "date") value = "1990-06-15";
     else value = `Test ${randomString(6)}`;
 
     if (!value) continue;
 
-    const identifiers = [field.name, field.id, field.labelText, field.ariaLabel, field.placeholder].filter(Boolean);
+    const identifiers = [
+      field.name,
+      field.id,
+      field.labelText,
+      field.ariaLabel,
+      field.placeholder,
+    ].filter(Boolean);
     for (const id of identifiers) {
       data[id] = value;
     }
@@ -308,8 +394,64 @@ function initializeAgent() {
   toggleAgentPanelVisibility(true);
   document.addEventListener("mousemove", handleMouseMove, true);
   updateAgentPredictions();
+  checkAndShowFormBanner();
+  // Re-check after a delay for SPAs that render forms asynchronously
+  setTimeout(checkAndShowFormBanner, 1500);
+  setTimeout(checkAndShowFormBanner, 4000);
 
   isAgentInitialized = true;
+}
+
+/** Detect forms on the current page and show the banner if any are found. */
+function checkAndShowFormBanner() {
+  const forms = Array.from(document.querySelectorAll("form")).filter(
+    (f) =>
+      f.querySelectorAll(
+        "input:not([type=hidden]):not([type=submit]):not([type=button]), textarea, select",
+      ).length >= 1,
+  );
+  if (forms.length === 0) {
+    hideFormDetectedBanner();
+    return;
+  }
+  const formEntries = forms.map((form, index) => {
+    // Derive a human-readable label for the form
+    const ariaLabel =
+      form.getAttribute("aria-label") || form.getAttribute("aria-labelledby");
+    const idLabel = form.id ? `#${form.id}` : "";
+    const heading = form
+      .closest("section, main, article, div")
+      ?.querySelector("h1, h2, h3, h4")
+      ?.textContent?.trim();
+    const submitBtn = form.querySelector<HTMLInputElement | HTMLButtonElement>(
+      "button[type=submit], input[type=submit]",
+    );
+    const submitLabel =
+      submitBtn?.textContent?.trim() || submitBtn?.value?.trim();
+    const label =
+      ariaLabel ||
+      (idLabel && idLabel !== "#" ? idLabel : "") ||
+      heading ||
+      (submitLabel ? `Submit: ${submitLabel}` : "") ||
+      `Form ${index + 1}`;
+
+    return {
+      label,
+      onFocus: () => {
+        const firstInput = form.querySelector<HTMLElement>(
+          "input:not([type=hidden]):not([type=submit]):not([type=button]):not([disabled]), textarea:not([disabled]), select:not([disabled])",
+        );
+        if (firstInput) {
+          firstInput.scrollIntoView({ behavior: "smooth", block: "center" });
+          firstInput.focus();
+        } else {
+          form.scrollIntoView({ behavior: "smooth", block: "center" });
+        }
+      },
+    };
+  });
+
+  showFormDetectedBanner(formEntries);
 }
 
 function decommissionAgent() {
@@ -340,6 +482,13 @@ async function setAgentState(enabled: boolean) {
  * Lazily initializes and returns the AI provider.
  */
 function getAIProvider(): AIProvider | null {
+  // ChatGPT Tab provider is tried first — no API key needed, just an open chatgpt.com tab
+  try {
+    return createAIProvider("chatgpt-tab", "");
+  } catch (e) {
+    console.warn("ChatGPT Tab unavailable:", e);
+  }
+  // Fall back to API-key-based providers
   if (AI_CONFIG.gemini) {
     try {
       return createAIProvider("gemini", AI_CONFIG.gemini);
@@ -398,15 +547,29 @@ async function updateAgentPredictions() {
       hasUserInteracted &&
       canMakeAICall()
     ) {
-      aiLog(`Prediction AI call triggered | Confidence: ${deterministic.confidence.toFixed(3)} | Provider: ${AI_CONFIG.gemini ? 'Gemini' : 'ChatGPT'}`);
+      aiLog(
+        `Prediction AI call triggered | Confidence: ${deterministic.confidence.toFixed(3)} | Provider: ${AI_CONFIG.gemini ? "Gemini" : AI_CONFIG.chatgpt ? "ChatGPT API" : "ChatGPT Tab"}`,
+      );
       recordAICall();
       finalResult = await maybeUseAI(context, deterministic, aiProvider);
-      aiLog(`Prediction AI call completed | New confidence: ${finalResult.confidence.toFixed(3)}`);
-    } else if (aiProvider && deterministic.confidence < 0.2 && !hasUserInteracted) {
+      aiLog(
+        `Prediction AI call completed | New confidence: ${finalResult.confidence.toFixed(3)}`,
+      );
+    } else if (
+      aiProvider &&
+      deterministic.confidence < 0.2 &&
+      !hasUserInteracted
+    ) {
       aiLog("Prediction AI call SKIPPED (waiting for user interaction)");
-    } else if (aiProvider && deterministic.confidence < 0.2 && !canMakeAICall()) {
+    } else if (
+      aiProvider &&
+      deterministic.confidence < 0.2 &&
+      !canMakeAICall()
+    ) {
       const s = getRLState();
-      aiLog(`Prediction AI call SKIPPED (rate limited) | Confidence: ${deterministic.confidence.toFixed(3)} | Calls this window: ${s.count}/${AI_MAX_CALLS_PER_WINDOW} | Cooldown remaining: ${Math.max(0, Math.round((AI_MIN_INTERVAL - (Date.now() - s.lastCall)) / 1000))}s`);
+      aiLog(
+        `Prediction AI call SKIPPED (rate limited) | Confidence: ${deterministic.confidence.toFixed(3)} | Calls this window: ${s.count}/${AI_MAX_CALLS_PER_WINDOW} | Cooldown remaining: ${Math.max(0, Math.round((AI_MIN_INTERVAL - (Date.now() - s.lastCall)) / 1000))}s`,
+      );
     }
 
     if (lastPrediction) {
@@ -488,28 +651,48 @@ const captureInteraction = async (event: Event) => {
 
     if (newActiveForm !== activeFormForAutofill) {
       activeFormForAutofill = newActiveForm;
+      // Keep agentPanel in sync so the fill button always knows which form to target
+      setAutofillTargetForm(newActiveForm);
       // Invalidate autofill cache when form changes
       cachedAutofillData = null;
       cachedAutofillFieldsKey = null;
       if (newActiveForm) {
         // Collect more comprehensive field metadata for better autofill matching
-        activeFormFields = Array.from(
+        const allElements = Array.from(
           newActiveForm.querySelectorAll("input, textarea, select"),
-        )
+        );
+        // Track radio groups we've already processed
+        const processedRadioGroups = new Set<string>();
+
+        activeFormFields = allElements
           .filter((el: Element) => {
             const input = el as HTMLInputElement;
-            return (
-              input.type !== "submit" &&
-              input.type !== "button" &&
-              input.type !== "hidden" &&
-              !input.value
-            );
+            const type = input.type?.toLowerCase();
+            if (type === "submit" || type === "button" || type === "hidden")
+              return false;
+            // Radio buttons: only process the first one per group name
+            if (type === "radio") {
+              const groupName = input.name;
+              if (!groupName || processedRadioGroups.has(groupName))
+                return false;
+              processedRadioGroups.add(groupName);
+              return true;
+            }
+            // Checkboxes always have a value; don't filter them by !input.value
+            if (type === "checkbox") return !input.checked;
+            // For text-like fields, skip if already filled
+            return !input.value;
           })
           .map((el: Element) => {
             const input = el as
               | HTMLInputElement
               | HTMLTextAreaElement
               | HTMLSelectElement;
+            const type =
+              (input as HTMLInputElement).type?.toLowerCase() ||
+              (input.tagName.toLowerCase() === "textarea"
+                ? "textarea"
+                : input.tagName.toLowerCase());
             // Get label text if available
             let labelText = "";
             if (input.id) {
@@ -524,24 +707,53 @@ const captureInteraction = async (event: Event) => {
             // aria-label is often used when no <label> exists (e.g. React Hook Form)
             const ariaLabel = input.getAttribute("aria-label")?.trim() || "";
 
+            // Capture options for select elements and radio button groups
+            let options: string[] | undefined;
+            if (input.tagName.toLowerCase() === "select") {
+              options = Array.from((input as HTMLSelectElement).options)
+                .filter((opt) => opt.value && opt.value !== "" && !opt.disabled)
+                .map((opt) => opt.text.trim())
+                .slice(0, 20);
+            } else if (type === "radio" && (input as HTMLInputElement).name) {
+              // Collect all radio options in the group
+              const radios = Array.from(
+                newActiveForm!.querySelectorAll<HTMLInputElement>(
+                  `input[type="radio"][name="${(input as HTMLInputElement).name}"]`,
+                ),
+              );
+              options = radios
+                .filter((r) => r.value && !r.disabled)
+                .map((r) => {
+                  // Try to get a human-readable label for each radio option
+                  let radioLabel = "";
+                  if (r.id) {
+                    const lbl = document.querySelector(`label[for="${r.id}"]`);
+                    if (lbl) radioLabel = lbl.textContent?.trim() || "";
+                  }
+                  if (!radioLabel) {
+                    const parentLbl = r.closest("label");
+                    if (parentLbl)
+                      radioLabel = parentLbl.textContent?.trim() || "";
+                  }
+                  return radioLabel || r.value;
+                })
+                .slice(0, 20);
+              // Also derive a group-level label from the fieldset legend or surrounding heading
+              if (!labelText) {
+                const fieldset = input.closest("fieldset");
+                const legend = fieldset?.querySelector("legend");
+                if (legend) labelText = legend.textContent?.trim() || "";
+              }
+            }
+
             return {
               name: input.name || "",
               id: input.id || "",
-              type:
-                input.type ||
-                (input.tagName.toLowerCase() === "textarea"
-                  ? "textarea"
-                  : input.tagName.toLowerCase()),
+              type,
               placeholder: (input as HTMLInputElement).placeholder || "",
               labelText: labelText,
               ariaLabel: ariaLabel,
-              // Capture dropdown options for select elements
-              options: input.tagName.toLowerCase() === "select"
-                ? Array.from((input as HTMLSelectElement).options)
-                    .filter(opt => opt.value && opt.value !== "" && !opt.disabled)
-                    .map(opt => opt.text.trim())
-                    .slice(0, 20)
-                : undefined,
+              options,
             };
           });
       } else {
@@ -669,7 +881,11 @@ function buildPageContext(): PageContext {
       }
     });
   return {
-    pageIntent: inferPageIntent(window.location.href, [], visibleActions.slice(0, 50)),
+    pageIntent: inferPageIntent(
+      window.location.href,
+      [],
+      visibleActions.slice(0, 50),
+    ),
     visibleActions: visibleActions.slice(0, 50),
     forms: [],
     lastUserAction: lastRecordedEvent

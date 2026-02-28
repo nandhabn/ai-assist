@@ -9,6 +9,7 @@ export default function App() {
   const [view, setView] = React.useState("dashboard"); // dashboard, control, flow, ai
   const [isRecording, setIsRecording] = React.useState(false);
   const [isAgentEnabled, setIsAgentEnabled] = React.useState(true);
+  const [isChatGPTTab, setIsChatGPTTab] = React.useState(false);
   const [eventCount, setEventCount] = React.useState(0);
 
   const isTabView =
@@ -17,36 +18,40 @@ export default function App() {
   React.useEffect(() => {
     // Check initial status
     chrome.storage.local.get(
-      [
-        "flowRecorder_events",
-        "flowRecorder_isRecording",
-        "flowRecorder_agentEnabled",
-      ],
+      ["flowRecorder_events", "flowRecorder_isRecording"],
       (data) => {
         setEventCount(data.flowRecorder_events?.length || 0);
         setIsRecording(data.flowRecorder_isRecording || false);
-        setIsAgentEnabled(data.flowRecorder_agentEnabled !== false);
       },
     );
 
-    // Check recording status
+    // Load per-tab agent-enabled state from background
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      const tabId = tabs[0]?.id;
+      if (tabId !== undefined) {
+        chrome.runtime.sendMessage(
+          { action: "GET_AGENT_ENABLED", tabId },
+          (resp) => {
+            setIsAgentEnabled(resp?.enabled !== false);
+            setIsChatGPTTab(resp?.chatgptTab === true);
+          },
+        );
+      }
+    });
+
+    // Check event count
     chrome.runtime.sendMessage({ action: "GET_EVENTS" }, (response) => {
       setEventCount(response.events?.length || 0);
     });
 
-    // Listen for updates
+    // Listen for recording/event updates
     const handleStorageChange = (changes) => {
       if (changes.flowRecorder_events) {
         const events = changes.flowRecorder_events.newValue || [];
         setEventCount(events.length);
       }
-
       if (changes.flowRecorder_isRecording) {
         setIsRecording(changes.flowRecorder_isRecording.newValue);
-      }
-
-      if (changes.flowRecorder_agentEnabled) {
-        setIsAgentEnabled(changes.flowRecorder_agentEnabled.newValue !== false);
       }
     };
 
@@ -65,23 +70,23 @@ export default function App() {
     chrome.tabs.create({ url: chrome.runtime.getURL("popup.html?view=tab") });
   };
 
-  const handleToggleAgent = async () => {
+  const handleToggleAgent = () => {
+    if (isChatGPTTab) return; // agent is always off on ChatGPT tabs
     const newStatus = !isAgentEnabled;
     setIsAgentEnabled(newStatus);
-    try {
-      await chrome.storage.local.set({ flowRecorder_agentEnabled: newStatus });
-      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-        if (tabs[0]?.id) {
-          chrome.tabs.sendMessage(tabs[0].id, {
-            action: "TOGGLE_AGENT",
-            enabled: newStatus,
-          });
-        }
-      });
-    } catch (error) {
-      console.error("Failed to toggle agent:", error);
-      setIsAgentEnabled(!newStatus);
-    }
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      const tabId = tabs[0]?.id;
+      if (tabId !== undefined) {
+        chrome.runtime.sendMessage(
+          { action: "SET_AGENT_ENABLED", tabId, enabled: newStatus },
+          (resp) => {
+            if (!resp?.ok) {
+              setIsAgentEnabled(!newStatus); // revert on failure
+            }
+          },
+        );
+      }
+    });
   };
 
   return (
@@ -108,12 +113,28 @@ export default function App() {
           </div>
         </div>
         <div className="header-agent-row">
-          <span className="header-agent-label">AI Prediction Assistant</span>
-          <label className="header-agent-toggle">
+          <span className="header-agent-label">
+            AI Prediction Assistant
+            {isChatGPTTab && (
+              <span
+                className="header-agent-note"
+                title="Agent is disabled on ChatGPT tabs — the bridge handles prompt injection here"
+              >
+                {" "}
+                (bridge only)
+              </span>
+            )}
+          </span>
+          <label
+            className={`header-agent-toggle${
+              isChatGPTTab ? " header-agent-toggle--disabled" : ""
+            }`}
+          >
             <input
               type="checkbox"
               checked={isAgentEnabled}
               onChange={handleToggleAgent}
+              disabled={isChatGPTTab}
             />
             <span className="header-agent-slider"></span>
           </label>
@@ -156,7 +177,12 @@ export default function App() {
           />
         )}
         {view === "control" && (
-          <RecorderControl onRecordingChange={setIsRecording} />
+          <RecorderControl
+            onRecordingChange={setIsRecording}
+            isAgentEnabled={isAgentEnabled}
+            onToggleAgent={handleToggleAgent}
+            isChatGPTTab={isChatGPTTab}
+          />
         )}
         {view === "flow" && <FlowViewer eventCount={eventCount} />}
         {view === "ai" && <AIPanel />}

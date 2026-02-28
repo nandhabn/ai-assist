@@ -14,7 +14,18 @@ import type {
 type ExecuteCallback = (prediction: RankedPrediction) => void;
 type RecalculateCallback = () => void;
 type AutofillDataGenerator = (
-  fields: { name: string; id: string; type: string; placeholder: string; labelText: string; ariaLabel: string; options?: string[] }[],
+  fields: {
+    name: string;
+    id: string;
+    type: string;
+    placeholder: string;
+    labelText: string;
+    ariaLabel: string;
+    options?: string[];
+  }[],
+  retryContext?: {
+    fieldErrors: { fieldId: string; fieldName: string; errorText: string }[];
+  },
 ) => Promise<Record<string, string>>;
 
 // Re-exporting for content.ts to use
@@ -126,6 +137,194 @@ const panelCss = `
     border-radius: 5px;
   }
   .autofill-btn:hover { background-color: #1d4ed8; }
+  .autofill-error-badge {
+    display: none;
+    font-size: 11px;
+    color: #b91c1c;
+    background: #fee2e2;
+    border: 1px solid #fca5a5;
+    border-radius: 4px;
+    padding: 2px 7px;
+    margin-top: 4px;
+    width: 100%;
+    box-sizing: border-box;
+  }
+  .autofill-error-badge.visible { display: block; }
+  #form-banner {
+    display: none;
+    flex-direction: column;
+    padding: 8px 12px;
+    margin: 0 8px 4px;
+    background-color: #f0fdf4;
+    border: 1px solid #bbf7d0;
+    border-radius: 6px;
+    gap: 6px;
+  }
+  #form-banner.visible { display: flex; }
+  .form-banner-header { display: flex; align-items: center; gap: 6px; }
+  .form-banner-icon { font-size: 13px; }
+  .form-banner-text { font-size: 12px; color: #166534; font-weight: 600; flex: 1; }
+  #form-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    max-height: 128px;
+    overflow-y: auto;
+  }
+  .form-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    padding: 4px 6px;
+    background: #fff;
+    border: 1px solid #d1fae5;
+    border-radius: 5px;
+  }
+  .form-item-label {
+    font-size: 11px;
+    color: #166534;
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .form-item-focus-btn {
+    font-size: 11px;
+    font-weight: 600;
+    color: #fff;
+    background-color: #16a34a;
+    border: none;
+    cursor: pointer;
+    padding: 3px 8px;
+    border-radius: 4px;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .form-item-focus-btn:hover { background-color: #15803d; }
+
+  .focus-btn { font-size: 12px; font-weight: 500; color: #059669; background: none; border: none; cursor: pointer; padding: 4px; margin-left: 2px; }
+  .focus-btn:hover { color: #047857; }
+
+  /* ---- Mission Prompt ---- */
+  #mission-section {
+    border-top: 1px solid #ede9fe;
+    margin: 0;
+  }
+  #mission-toggle-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 12px;
+    cursor: pointer;
+    user-select: none;
+  }
+  #mission-toggle-row:hover { background: #f5f3ff; }
+  .mission-toggle-icon { font-size: 13px; }
+  .mission-toggle-label {
+    flex: 1;
+    font-size: 12px;
+    font-weight: 600;
+    color: #5b21b6;
+  }
+  .mission-active-badge {
+    display: none;
+    font-size: 10px;
+    font-weight: 600;
+    color: #fff;
+    background: #7c3aed;
+    padding: 2px 7px;
+    border-radius: 10px;
+  }
+  .mission-active-badge.visible { display: inline-block; }
+  .mission-chevron {
+    font-size: 10px;
+    color: #7c3aed;
+    transition: transform 0.2s;
+  }
+  .mission-chevron.open { transform: rotate(180deg); }
+  #mission-body {
+    display: none;
+    flex-direction: column;
+    gap: 6px;
+    padding: 0 10px 10px;
+  }
+  #mission-body.open { display: flex; }
+  /* active mission text pill */
+  #mission-active-row {
+    display: none;
+    align-items: flex-start;
+    gap: 6px;
+    padding: 6px 8px;
+    background: linear-gradient(135deg, #ede9fe 0%, #f5f3ff 100%);
+    border: 1px solid #c4b5fd;
+    border-radius: 6px;
+  }
+  #mission-active-row.visible { display: flex; }
+  .mission-active-text {
+    font-size: 11px;
+    color: #5b21b6;
+    flex: 1;
+    line-height: 1.4;
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    font-style: italic;
+  }
+  .mission-edit-btn, .mission-clear-icon-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 2px 4px;
+    font-size: 11px;
+    flex-shrink: 0;
+    color: #7c3aed;
+    line-height: 1;
+  }
+  .mission-edit-btn:hover, .mission-clear-icon-btn:hover { color: #5b21b6; }
+  /* textarea input area */
+  #mission-input-area { display: flex; flex-direction: column; gap: 5px; }
+  .mission-textarea {
+    width: 100%;
+    resize: none;
+    border: 1px solid #c4b5fd;
+    border-radius: 6px;
+    padding: 6px 8px;
+    font-size: 12px;
+    font-family: inherit;
+    color: #1f2937;
+    background: #fff;
+    line-height: 1.5;
+    outline: none;
+    box-sizing: border-box;
+  }
+  .mission-textarea::placeholder { color: #a78bfa; font-style: italic; }
+  .mission-textarea:focus { border-color: #7c3aed; box-shadow: 0 0 0 2px rgba(124,58,237,0.15); }
+  .mission-btn-row { display: flex; gap: 5px; justify-content: flex-end; }
+  .mission-set-btn {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 4px 12px;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    background: #7c3aed;
+    color: #fff;
+  }
+  .mission-set-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .mission-set-btn:not(:disabled):hover { background: #6d28d9; }
+  .mission-cancel-btn {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 4px 10px;
+    border: 1px solid #c4b5fd;
+    border-radius: 5px;
+    cursor: pointer;
+    background: transparent;
+    color: #7c3aed;
+  }
+  .mission-cancel-btn:hover { background: #ede9fe; }
 `;
 
 const PANEL_ID = "flow-agent-panel-host";
@@ -133,6 +332,16 @@ let shadowRoot: ShadowRoot | null = null;
 let onExecute: ExecuteCallback | null = null;
 let onRecalculate: RecalculateCallback | null = null;
 let onGenerateAutofillData: AutofillDataGenerator | null = null;
+// The form element we want to autofill, captured at the time the user opened the
+// autofill assist panel (or clicked "Fill Form").  Stored here so an async AI call
+// can still target the right form even if focus moves elsewhere before it returns.
+let autofillTargetForm: HTMLFormElement | null = null;
+
+/** Called by content.ts whenever the active autofill form changes. */
+export function setAutofillTargetForm(form: HTMLFormElement | null) {
+  autofillTargetForm = form;
+}
+
 const originalStyles = new WeakMap<
   HTMLElement,
   { outline: string; outlineOffset: string }
@@ -153,8 +362,6 @@ let lastConfidence = 0.0;
 
 // No hardcoded data generators — autofill data is now provided
 // dynamically via the AutofillDataGenerator callback (AI-powered).
-
-
 
 function getConfidenceClass(c: number): "high" | "medium" | "low" {
   return c >= 0.6 ? "high" : c >= 0.3 ? "medium" : "low";
@@ -208,48 +415,263 @@ export function initAgentPanel(
         </div>
       </div>
       <div id="prediction-list"></div>
+      <div id="form-banner">
+        <div class="form-banner-header">
+          <span class="form-banner-icon">📋</span>
+          <span id="form-banner-text" class="form-banner-text">Forms detected on this page</span>
+        </div>
+        <div id="form-list"></div>
+      </div>
       <div id="autofill-assist">
         <span class="autofill-text">Autofill Available</span>
         <button id="autofill-btn" class="autofill-btn">Fill Form</button>
+        <div id="autofill-error-badge" class="autofill-error-badge"></div>
+      </div>
+      <div id="mission-section">
+        <div id="mission-toggle-row">
+          <span class="mission-toggle-icon">🎯</span>
+          <span class="mission-toggle-label">Mission Prompt</span>
+          <span id="mission-active-badge" class="mission-active-badge">Active</span>
+          <span id="mission-chevron" class="mission-chevron">▼</span>
+        </div>
+        <div id="mission-body">
+          <div id="mission-active-row">
+            <span id="mission-active-text" class="mission-active-text"></span>
+            <button id="mission-edit-btn" class="mission-edit-btn" title="Edit">✏️</button>
+            <button id="mission-clear-icon-btn" class="mission-clear-icon-btn" title="Clear">✕</button>
+          </div>
+          <div id="mission-input-area">
+            <textarea id="mission-textarea" class="mission-textarea" rows="3"
+              placeholder="Describe your goal across pages… e.g. &quot;Sign up with a test account and complete checkout&quot;"></textarea>
+            <div class="mission-btn-row">
+              <button id="mission-cancel-btn" class="mission-cancel-btn">Cancel</button>
+              <button id="mission-set-btn" class="mission-set-btn">Set Mission</button>
+            </div>
+          </div>
+        </div>
       </div>
     `;
   shadowRoot.appendChild(container);
 
-  shadowRoot.getElementById("autofill-btn")?.addEventListener("click", async () => {
-    const btn = shadowRoot!.getElementById("autofill-btn") as HTMLButtonElement;
-    const textEl = shadowRoot!.querySelector(".autofill-text") as HTMLElement;
+  // ---- Mission Prompt wiring ----
+  const missionToggleRow = shadowRoot.getElementById("mission-toggle-row")!;
+  const missionBody = shadowRoot.getElementById("mission-body")!;
+  const missionChevron = shadowRoot.getElementById("mission-chevron")!;
+  const missionActiveRow = shadowRoot.getElementById("mission-active-row")!;
+  const missionActiveText = shadowRoot.getElementById("mission-active-text")!;
+  const missionActiveBadge = shadowRoot.getElementById("mission-active-badge")!;
+  const missionInputArea = shadowRoot.getElementById("mission-input-area")!;
+  const missionTextarea = shadowRoot.getElementById(
+    "mission-textarea",
+  ) as HTMLTextAreaElement;
+  const missionSetBtn = shadowRoot.getElementById(
+    "mission-set-btn",
+  ) as HTMLButtonElement;
+  const missionCancelBtn = shadowRoot.getElementById(
+    "mission-cancel-btn",
+  ) as HTMLButtonElement;
+  const missionEditBtn = shadowRoot.getElementById(
+    "mission-edit-btn",
+  ) as HTMLButtonElement;
+  const missionClearIconBtn = shadowRoot.getElementById(
+    "mission-clear-icon-btn",
+  ) as HTMLButtonElement;
 
-    if (!currentFormFields || currentFormFields.length === 0) {
-      console.warn("[Flow Agent] No form fields available for autofill");
-      return;
-    }
+  const toggleMissionBody = (open: boolean) => {
+    missionBody.classList.toggle("open", open);
+    missionChevron.classList.toggle("open", open);
+  };
 
-    if (!onGenerateAutofillData) {
-      console.warn("[Flow Agent] No autofill data generator configured");
-      return;
-    }
+  const showMissionActive = (text: string) => {
+    missionActiveText.textContent = text;
+    missionActiveRow.classList.add("visible");
+    missionInputArea.style.display = "none";
+    missionActiveBadge.classList.add("visible");
+  };
 
-    // Show loading state
-    btn.disabled = true;
-    btn.textContent = "Generating...";
-    if (textEl) textEl.textContent = "AI is generating data...";
+  const showMissionInput = (prefill = "") => {
+    missionActiveRow.classList.remove("visible");
+    missionInputArea.style.display = "flex";
+    missionTextarea.value = prefill;
+    missionSetBtn.disabled = !prefill.trim();
+    setTimeout(() => missionTextarea.focus(), 50);
+  };
 
-    try {
-      const dataMap = await onGenerateAutofillData(currentFormFields);
-      console.log("[Flow Agent] AI-generated data map:", dataMap);
-      (window as any).__fillActiveForm(dataMap, { debug: true, delay: 50 });
-    } catch (error) {
-      console.error("[Flow Agent] Autofill data generation failed:", error);
-      if (textEl) textEl.textContent = "Generation failed";
-      setTimeout(() => {
-        if (textEl) textEl.textContent = "Autofill Available";
-      }, 2000);
-    } finally {
-      btn.disabled = false;
-      btn.textContent = "Fill Form";
-      if (textEl) textEl.textContent = "Autofill Available";
+  const broadcastMission = (prompt: string) => {
+    // Route through background so it can scope the mission to this tab's ID.
+    chrome.runtime
+      .sendMessage({ action: "SET_MISSION_PROMPT", prompt })
+      .catch(() => {});
+  };
+
+  missionToggleRow.addEventListener("click", () => {
+    const isOpen = missionBody.classList.contains("open");
+    toggleMissionBody(!isOpen);
+    // If opening with no mission yet, show input
+    if (!isOpen && !missionActiveRow.classList.contains("visible")) {
+      showMissionInput(missionTextarea.value);
     }
   });
+
+  missionTextarea.addEventListener("input", () => {
+    missionSetBtn.disabled = !missionTextarea.value.trim();
+  });
+
+  missionTextarea.addEventListener("keydown", (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+      e.preventDefault();
+      if (!missionSetBtn.disabled) missionSetBtn.click();
+    }
+  });
+
+  missionSetBtn.addEventListener("click", () => {
+    const text = missionTextarea.value.trim();
+    if (!text) return;
+    broadcastMission(text);
+    showMissionActive(text);
+    // content.ts picks it up via storage change listener
+  });
+
+  missionCancelBtn.addEventListener("click", () => {
+    if (missionActiveRow.classList.contains("visible")) {
+      missionInputArea.style.display = "none";
+    } else {
+      toggleMissionBody(false);
+    }
+  });
+
+  missionEditBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    showMissionInput(missionActiveText.textContent || "");
+  });
+
+  missionClearIconBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    broadcastMission("");
+    missionActiveRow.classList.remove("visible");
+    missionActiveBadge.classList.remove("visible");
+    missionTextarea.value = "";
+    missionSetBtn.disabled = true;
+    missionInputArea.style.display = "none";
+    toggleMissionBody(false);
+  });
+
+  // Load this tab's persisted mission on init
+  chrome.runtime
+    .sendMessage({ action: "GET_MISSION_PROMPT" })
+    .then((resp: { prompt?: string } | undefined) => {
+      const saved = resp?.prompt || "";
+      if (saved) showMissionActive(saved);
+    })
+    .catch(() => {});
+  // ---- end Mission Prompt wiring ----
+
+  shadowRoot
+    .getElementById("autofill-btn")
+    ?.addEventListener("click", async () => {
+      const btn = shadowRoot!.getElementById(
+        "autofill-btn",
+      ) as HTMLButtonElement;
+      const textEl = shadowRoot!.querySelector(".autofill-text") as HTMLElement;
+
+      if (!currentFormFields || currentFormFields.length === 0) {
+        console.warn("[Flow Agent] No form fields available for autofill");
+        return;
+      }
+
+      if (!onGenerateAutofillData) {
+        console.warn("[Flow Agent] No autofill data generator configured");
+        return;
+      }
+
+      // Show loading state
+      btn.disabled = true;
+      btn.textContent = "Generating...";
+      if (textEl) textEl.textContent = "AI is generating data...";
+
+      // Capture the target form NOW — before the async AI call —
+      // so that any focus change while AI is thinking doesn't lose it.
+      const pinnedForm = autofillTargetForm;
+      const errorBadge = shadowRoot!.getElementById(
+        "autofill-error-badge",
+      ) as HTMLElement | null;
+      if (errorBadge) {
+        errorBadge.textContent = "";
+        errorBadge.classList.remove("visible");
+      }
+
+      const MAX_RETRIES = 2;
+      let retryErrors:
+        | { fieldId: string; fieldName: string; errorText: string }[]
+        | undefined;
+
+      const runFill = async (): Promise<boolean> => {
+        const dataMap = await onGenerateAutofillData(
+          currentFormFields!,
+          retryErrors ? { fieldErrors: retryErrors } : undefined,
+        );
+        console.log("[Flow Agent] AI-generated data map:", dataMap);
+        if (pinnedForm && (window as any).__fillFormElement) {
+          await (window as any).__fillFormElement(pinnedForm, dataMap, {
+            debug: true,
+            delay: 50,
+          });
+        } else {
+          await (window as any).__fillActiveForm(dataMap, {
+            debug: true,
+            delay: 50,
+          });
+        }
+        // Wait briefly for frameworks (React / Angular) to run validation
+        await new Promise((r) => setTimeout(r, 700));
+        // Detect validation errors on the form
+        const detected: {
+          fieldId: string;
+          fieldName: string;
+          errorText: string;
+        }[] =
+          pinnedForm && (window as any).__detectFormErrors
+            ? (window as any).__detectFormErrors(pinnedForm)
+            : [];
+        return detected.length === 0 ? true : ((retryErrors = detected), false);
+      };
+
+      try {
+        let success = await runFill();
+        for (let attempt = 1; attempt <= MAX_RETRIES && !success; attempt++) {
+          console.log(
+            `[Flow Agent] Form errors detected — retry ${attempt}/${MAX_RETRIES}`,
+          );
+          if (textEl)
+            textEl.textContent = `Errors found — retry ${attempt}/${MAX_RETRIES}…`;
+          success = await runFill();
+        }
+        if (!success && retryErrors) {
+          // Still failing after all retries — surface errors in the badge
+          const summary = retryErrors
+            .map((e) => `${e.fieldName || e.fieldId}: ${e.errorText}`)
+            .join(" · ");
+          if (errorBadge) {
+            errorBadge.textContent = `⚠ ${summary}`;
+            errorBadge.classList.add("visible");
+          }
+          console.warn(
+            "[Flow Agent] Autofill still has errors after retries:",
+            retryErrors,
+          );
+        }
+      } catch (error) {
+        console.error("[Flow Agent] Autofill data generation failed:", error);
+        if (textEl) textEl.textContent = "Generation failed";
+        setTimeout(() => {
+          if (textEl) textEl.textContent = "Autofill Available";
+        }, 2000);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = "Fill Form";
+        if (textEl) textEl.textContent = "Autofill Available";
+      }
+    });
 }
 
 export function renderAgentPanel(
@@ -317,6 +739,7 @@ export function renderAgentPanel(
     const row = document.createElement("div");
     row.className = "prediction-row";
 
+    // Highlight element outline on hover (visual only — no scroll)
     row.addEventListener("mouseenter", () => {
       if (
         onRecalculate &&
@@ -324,7 +747,6 @@ export function renderAgentPanel(
       ) {
         onRecalculate();
       }
-
       const el = document.querySelector<HTMLElement>(pred.action.selector);
       if (el && document.contains(el)) {
         if (!originalStyles.has(el)) {
@@ -335,11 +757,6 @@ export function renderAgentPanel(
         }
         el.style.outline = "2px solid #00AEEF";
         el.style.outlineOffset = "2px";
-        el.scrollIntoView({
-          behavior: "smooth",
-          block: "center",
-          inline: "center",
-        });
       }
     });
 
@@ -366,6 +783,22 @@ export function renderAgentPanel(
     const score = document.createElement("span");
     score.className = "score-badge";
     score.textContent = pred.totalScore.toFixed(2);
+    const focusBtn = document.createElement("button");
+    focusBtn.className = "focus-btn";
+    focusBtn.textContent = "⌖";
+    focusBtn.title = "Focus element";
+    focusBtn.onclick = (e) => {
+      e.stopPropagation();
+      const el = document.querySelector<HTMLElement>(pred.action.selector);
+      if (el && document.contains(el)) {
+        el.scrollIntoView({
+          behavior: "smooth",
+          block: "center",
+          inline: "center",
+        });
+        el.focus();
+      }
+    };
     const runBtn = document.createElement("button");
     runBtn.className = "run-btn";
     runBtn.textContent = "Run";
@@ -376,7 +809,7 @@ export function renderAgentPanel(
     const whyToggle = document.createElement("button");
     whyToggle.className = "why-toggle";
     whyToggle.textContent = "▼";
-    main.append(label, score, runBtn, whyToggle);
+    main.append(label, score, focusBtn, runBtn, whyToggle);
 
     const whyDetails = document.createElement("div");
     whyDetails.className = "why-details";
@@ -396,6 +829,74 @@ export function renderAgentPanel(
     row.append(main, whyDetails);
     list.appendChild(row);
   });
+}
+
+export function showFormDetectedBanner(
+  forms: { label: string; onFocus: () => void }[],
+) {
+  if (!shadowRoot) return;
+  const banner = shadowRoot.getElementById("form-banner");
+  const formList = shadowRoot.getElementById("form-list");
+  const bannerText = shadowRoot.getElementById("form-banner-text");
+  if (!banner || !formList) return;
+
+  // Update header text based on count
+  if (bannerText) {
+    bannerText.textContent =
+      forms.length === 1
+        ? "Form detected on this page"
+        : `${forms.length} forms detected on this page`;
+  }
+
+  // Rebuild the list
+  formList.innerHTML = "";
+  forms.forEach(({ label, onFocus }) => {
+    const item = document.createElement("div");
+    item.className = "form-item";
+
+    const labelEl = document.createElement("span");
+    labelEl.className = "form-item-label";
+    labelEl.textContent = label;
+    labelEl.title = label;
+
+    const btn = document.createElement("button");
+    btn.className = "form-item-focus-btn";
+    btn.textContent = "Go to Form";
+    btn.addEventListener("click", () => {
+      onFocus();
+      banner.classList.remove("visible");
+    });
+
+    item.appendChild(labelEl);
+    item.appendChild(btn);
+    formList.appendChild(item);
+  });
+
+  banner.classList.add("visible");
+}
+
+export function setMissionPrompt(text: string, _onClear?: () => void) {
+  if (!shadowRoot) return;
+  const missionActiveRow = shadowRoot.getElementById("mission-active-row");
+  const missionActiveText = shadowRoot.getElementById("mission-active-text");
+  const missionActiveBadge = shadowRoot.getElementById("mission-active-badge");
+  const missionInputArea = shadowRoot.getElementById("mission-input-area");
+  if (!missionActiveRow || !missionActiveText || !missionActiveBadge) return;
+  if (text.trim()) {
+    missionActiveText.textContent = text.trim();
+    missionActiveRow.classList.add("visible");
+    missionActiveBadge.classList.add("visible");
+    if (missionInputArea) missionInputArea.style.display = "none";
+  } else {
+    missionActiveRow.classList.remove("visible");
+    missionActiveBadge.classList.remove("visible");
+  }
+}
+
+export function hideFormDetectedBanner() {
+  if (!shadowRoot) return;
+  const banner = shadowRoot.getElementById("form-banner");
+  banner?.classList.remove("visible");
 }
 
 export function setAIThinking(isThinking: boolean) {

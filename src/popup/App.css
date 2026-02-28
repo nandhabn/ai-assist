@@ -143,6 +143,38 @@ body {
   box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.3);
 }
 
+.header-agent-toggle--disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.header-agent-toggle--disabled .header-agent-slider {
+  cursor: not-allowed;
+}
+
+.header-agent-note {
+  font-size: 10px;
+  font-weight: 400;
+  opacity: 0.75;
+  font-style: italic;
+}
+
+.header-agent-toggle--disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.header-agent-toggle--disabled .header-agent-slider {
+  cursor: not-allowed;
+}
+
+.header-agent-note {
+  font-size: 10px;
+  font-weight: 400;
+  opacity: 0.75;
+  font-style: italic;
+}
+
 .open-in-tab-btn {
   background: rgba(255, 255, 255, 0.1);
   color: white;

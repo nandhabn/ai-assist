@@ -1,0 +1,113 @@
+.mission-bar {
+  padding: 10px 12px;
+  background: linear-gradient(135deg, #f5f3ff 0%, #ede9fe 100%);
+  border-top: 1px solid #c4b5fd;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mission-bar-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mission-bar-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: #5b21b6;
+  flex: 1;
+}
+
+.mission-bar-active-badge {
+  font-size: 10px;
+  font-weight: 600;
+  color: #fff;
+  background: #7c3aed;
+  padding: 2px 7px;
+  border-radius: 10px;
+  animation: mission-pulse 2s ease-in-out infinite;
+}
+
+@keyframes mission-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+.mission-bar-input {
+  width: 100%;
+  resize: none;
+  border: 1px solid #c4b5fd;
+  border-radius: 6px;
+  padding: 7px 9px;
+  font-size: 12px;
+  font-family: inherit;
+  color: #1f2937;
+  background: #fff;
+  line-height: 1.5;
+  outline: none;
+  transition: border-color 0.15s;
+  box-sizing: border-box;
+}
+
+.mission-bar-input::placeholder {
+  color: #a78bfa;
+  font-style: italic;
+}
+
+.mission-bar-input:focus {
+  border-color: #7c3aed;
+  box-shadow: 0 0 0 2px rgba(124, 58, 237, 0.15);
+}
+
+.mission-bar-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.mission-bar-hint {
+  flex: 1;
+  font-size: 10px;
+  color: #8b5cf6;
+}
+
+.mission-bar-btn {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 5px 12px;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.mission-bar-save {
+  background: #7c3aed;
+  color: #fff;
+}
+
+.mission-bar-save:hover:not(:disabled) {
+  background: #6d28d9;
+}
+
+.mission-bar-save:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.mission-bar-clear {
+  background: transparent;
+  color: #7c3aed;
+  border: 1px solid #c4b5fd;
+}
+
+.mission-bar-clear:hover {
+  background: #ede9fe;
+}
