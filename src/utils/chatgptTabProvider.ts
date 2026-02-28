@@ -16,6 +16,11 @@ import {
   FormFieldInfo,
   AIFormData,
 } from "../types/ai";
+import {
+  buildPredictionPrompt,
+  buildFormDataPrompt,
+  formatFieldDescriptions,
+} from "@/config/prompts";
 
 function aiLog(msg: string) {
   const now = new Date();
@@ -91,24 +96,7 @@ export class ChatGPTTabProvider implements AIProvider {
       `[ChatGPT Tab] predictNextAction START | Intent: ${context.pageIntent}`,
     );
 
-    const metaSection = context.pageMeta
-      ? `\nPage Metadata:\n  URL: ${context.pageMeta.url}\n  Title: ${context.pageMeta.title}\n  Description: ${context.pageMeta.description || "N/A"}\n  Site: ${context.pageMeta.ogSiteName || "N/A"}\n  Type: ${context.pageMeta.ogType || "N/A"}\n  Keywords: ${context.pageMeta.keywords || "N/A"}`
-      : "";
-
-    const prompt = `You are an expert at predicting user actions on a web page.
-${metaSection}
-Current Page Intent: ${context.pageIntent}
-Last Action Taken: ${context.lastActionLabel || "None"}
-Visible Actions: ${JSON.stringify(context.topVisibleActions)}
-Available Form Fields: ${JSON.stringify(context.formFields)}
-
-Based on this context, predict the single most likely next action.
-Respond in STRICT JSON format — no extra text, no markdown:
-{
-  "predictedActionLabel": "string (must be one of the Visible Actions)",
-  "reasoning": "string (one sentence explanation)",
-  "confidenceEstimate": number (0.0 to 1.0)
-}`;
+    const prompt = buildPredictionPrompt(context);
 
     try {
       const raw = await sendViaBridge(prompt);
@@ -135,39 +123,8 @@ Respond in STRICT JSON format — no extra text, no markdown:
       `[ChatGPT Tab] generateFormData START | Fields: ${fields.length} | Context: ${pageContext || "none"}`,
     );
 
-    const fieldDescriptions = fields
-      .map((f, i) => {
-        const parts = [`Field ${i + 1}:`];
-        if (f.name) parts.push(`name="${f.name}"`);
-        if (f.id) parts.push(`id="${f.id}"`);
-        parts.push(`type="${f.type}"`);
-        if (f.placeholder) parts.push(`placeholder="${f.placeholder}"`);
-        if (f.labelText) parts.push(`label="${f.labelText}"`);
-        if (f.ariaLabel) parts.push(`aria-label="${f.ariaLabel}"`);
-        if (f.options?.length)
-          parts.push(`options=[${f.options.map((o) => `"${o}"`).join(", ")}]`);
-        return parts.join(" ");
-      })
-      .join("\n");
-
-    const prompt = `Generate realistic test data for these form fields.
-${pageContext ? `Page context: ${pageContext}` : ""}
-
-${fieldDescriptions}
-
-Rules:
-- Use the field's "name" as the key; fall back to "id", then "label".
-- Emails: use @example.com. Passwords: 12+ chars, mixed case, numbers, symbols.
-- For select/dropdown fields and radio button groups with listed options, MUST pick one of the provided options exactly as written.
-- Make data coherent (same persona across fields).
-
-Respond in STRICT JSON — no extra text, no markdown:
-{
-  "fieldValues": {
-    "fieldKey1": "value1",
-    "fieldKey2": "value2"
-  }
-}`;
+    const fieldDescriptions = formatFieldDescriptions(fields);
+    const prompt = buildFormDataPrompt(fieldDescriptions, pageContext);
 
     try {
       const raw = await sendViaBridge(prompt);

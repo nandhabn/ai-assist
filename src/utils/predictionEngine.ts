@@ -57,6 +57,8 @@ export interface PageContext {
     width: number;
     height: number;
   };
+  /** User-defined mission prompt, if set. */
+  mission?: string;
 }
 
 /**
@@ -408,6 +410,7 @@ function createCompactContext(context: PageContext): CompactContext {
       f.fields.map((field) => field.name),
     ),
     pageMeta: extractPageMeta(),
+    mission: context.mission,
   };
 }
 

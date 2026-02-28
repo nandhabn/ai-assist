@@ -32,6 +32,7 @@ import {
   showFormDetectedBanner,
   hideFormDetectedBanner,
   setAutofillTargetForm,
+  setMissionPrompt,
 } from "./agentPanel";
 import { createAIProvider } from "@/utils/aiProviderFactory";
 import { AI_CONFIG } from "@/config/aiConfig";
@@ -63,6 +64,9 @@ let isUpdating = false;
 let lastPrediction: PredictionResult | null = null;
 
 let aiProvider: AIProvider | null | undefined = undefined;
+
+// --- Mission Prompt ---
+let currentMission = "";
 
 // --- AI Call Logger with timestamp ---
 function aiLog(msg: string) {
@@ -204,14 +208,18 @@ async function generateAutofillData(
       recordAICall();
       console.log("[Flow Agent] Requesting AI-generated form data...");
       const pageContext = document.title || window.location.pathname;
+      // Include mission in the context if set
+      const missionPrefix = currentMission
+        ? `User mission: ${currentMission}. `
+        : "";
       // When retrying after validation errors, embed the error details so the AI
       // can correct the problematic field values.
       const enrichedContext = retryContext?.fieldErrors.length
-        ? `${pageContext}. Previous fill attempt had validation errors — please correct: ` +
+        ? `${missionPrefix}${pageContext}. Previous fill attempt had validation errors — please correct: ` +
           retryContext.fieldErrors
             .map((e) => `"${e.fieldName || e.fieldId}": ${e.errorText}`)
             .join("; ")
-        : pageContext;
+        : `${missionPrefix}${pageContext}`;
       const result = await aiProvider.generateFormData(fields, enrichedContext);
 
       if (result.fieldValues && Object.keys(result.fieldValues).length > 0) {
@@ -489,6 +497,13 @@ function getAIProvider(): AIProvider | null {
     console.warn("ChatGPT Tab unavailable:", e);
   }
   // Fall back to API-key-based providers
+  if (AI_CONFIG.nova) {
+    try {
+      return createAIProvider("nova", AI_CONFIG.nova);
+    } catch (e) {
+      console.error("Failed to init Amazon Nova:", e);
+    }
+  }
   if (AI_CONFIG.gemini) {
     try {
       return createAIProvider("gemini", AI_CONFIG.gemini);
@@ -548,7 +563,7 @@ async function updateAgentPredictions() {
       canMakeAICall()
     ) {
       aiLog(
-        `Prediction AI call triggered | Confidence: ${deterministic.confidence.toFixed(3)} | Provider: ${AI_CONFIG.gemini ? "Gemini" : AI_CONFIG.chatgpt ? "ChatGPT API" : "ChatGPT Tab"}`,
+        `Prediction AI call triggered | Confidence: ${deterministic.confidence.toFixed(3)} | Provider: ${AI_CONFIG.nova ? "Nova" : AI_CONFIG.gemini ? "Gemini" : AI_CONFIG.chatgpt ? "ChatGPT API" : "ChatGPT Tab"}`,
       );
       recordAICall();
       finalResult = await maybeUseAI(context, deterministic, aiProvider);
@@ -828,6 +843,14 @@ function handleMessage(
     case "TOGGLE_AGENT":
       setAgentState(request.enabled);
       break;
+    case "SET_MISSION_PROMPT":
+      currentMission = request.prompt || "";
+      setMissionPrompt(currentMission);
+      // Invalidate autofill cache so next fill uses the new mission
+      cachedAutofillData = null;
+      cachedAutofillFieldsKey = null;
+      if (isAgentGloballyEnabled) scheduleUpdate();
+      break;
   }
   return true;
 }
@@ -900,6 +923,7 @@ function buildPageContext(): PageContext {
       width: document.documentElement.clientWidth,
       height: document.documentElement.clientHeight,
     },
+    mission: currentMission || undefined,
   };
 }
 

@@ -7,6 +7,11 @@ import {
   FormFieldInfo,
   AIFormData,
 } from "../types/ai";
+import {
+  buildPredictionPrompt,
+  buildFormDataPrompt,
+  formatFieldDescriptions,
+} from "@/config/prompts";
 
 function aiLog(msg: string) {
   const now = new Date();
@@ -40,38 +45,11 @@ export class GeminiProvider implements AIProvider {
   }
 
   async predictNextAction(context: CompactContext): Promise<AIPrediction> {
-    const {
-      pageIntent,
-      lastActionLabel,
-      topVisibleActions,
-      formFields,
-      pageMeta,
-    } = context;
-
     aiLog(
-      `[Gemini] predictNextAction START | Intent: ${pageIntent} | Actions: ${topVisibleActions.length} | Fields: ${formFields.length}`,
+      `[Gemini] predictNextAction START | Intent: ${context.pageIntent} | Actions: ${context.topVisibleActions.length} | Fields: ${context.formFields.length}`,
     );
 
-    const metaSection = pageMeta
-      ? `\n      Page Metadata:\n        URL: ${pageMeta.url}\n        Title: ${pageMeta.title}\n        Description: ${pageMeta.description || "N/A"}\n        Site: ${pageMeta.ogSiteName || "N/A"}\n        Type: ${pageMeta.ogType || "N/A"}\n        Keywords: ${pageMeta.keywords || "N/A"}`
-      : "";
-
-    const prompt = `
-      You are an expert at predicting user actions on a web page.
-      Based on the provided context, predict the single most likely next action.
-      ${metaSection}
-      Current Page Intent: ${pageIntent}
-      Last Action Taken: ${lastActionLabel || "None"}
-      Visible Actions: ${JSON.stringify(topVisibleActions)}
-      Available Form Fields: ${JSON.stringify(formFields)}
-
-      Respond in STRICT JSON format with the following structure:
-      {
-        "predictedActionLabel": "string (must be one of the Visible Actions)",
-        "reasoning": "string (explain your choice in one sentence)",
-        "confidenceEstimate": "number (a value between 0.0 and 1.0)"
-      }
-    `;
+    const prompt = buildPredictionPrompt(context);
 
     try {
       const response = await fetch(
@@ -127,46 +105,8 @@ export class GeminiProvider implements AIProvider {
     aiLog(
       `[Gemini] generateFormData START | Fields: ${fields.length} | Context: ${pageContext || "none"}`,
     );
-    const fieldDescriptions = fields
-      .map((f, i) => {
-        const parts: string[] = [`Field ${i + 1}:`];
-        if (f.name) parts.push(`name="${f.name}"`);
-        if (f.id) parts.push(`id="${f.id}"`);
-        parts.push(`type="${f.type}"`);
-        if (f.placeholder) parts.push(`placeholder="${f.placeholder}"`);
-        if (f.labelText) parts.push(`label="${f.labelText}"`);
-        if (f.ariaLabel) parts.push(`aria-label="${f.ariaLabel}"`);
-        if (f.options && f.options.length > 0)
-          parts.push(`options=[${f.options.map((o) => `"${o}"`).join(", ")}]`);
-        return parts.join(" ");
-      })
-      .join("\n");
-
-    const prompt = `
-You are a test data generator for web form automation.
-Generate realistic, contextually appropriate test data for the following form fields.
-${pageContext ? `Page context: ${pageContext}` : ""}
-
-Form Fields:
-${fieldDescriptions}
-
-Rules:
-- Generate realistic-looking data (e.g., real-sounding names, valid email formats, strong passwords).
-- For each field, return a mapping using the field's "name" attribute as the key. If "name" is empty, use "id". If both are empty, use "label" or "aria-label".
-- Emails should use @example.com or @test.com domains.
-- Passwords should be strong (12+ chars, mixed case, numbers, symbols).
-- Phone numbers should be in a valid format.
-- For select/dropdown fields and radio button groups with options listed, you MUST pick one of the provided options exactly as written.
-- All generated values should be coherent with each other (e.g., same persona).
-
-Respond in STRICT JSON format:
-{
-  "fieldValues": {
-    "fieldKey1": "generated value 1",
-    "fieldKey2": "generated value 2"
-  }
-}
-    `;
+    const fieldDescriptions = formatFieldDescriptions(fields);
+    const prompt = buildFormDataPrompt(fieldDescriptions, pageContext);
 
     try {
       const response = await fetch(

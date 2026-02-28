@@ -90,6 +90,11 @@ export interface CompactContext {
    * Key metadata extracted from the page's meta tags, OG tags, etc.
    */
   pageMeta?: PageMeta;
+  /**
+   * An optional user-defined mission/goal that guides AI predictions and form data generation.
+   * Set via the Mission Prompt panel in the extension.
+   */
+  mission?: string;
 }
 
 /**

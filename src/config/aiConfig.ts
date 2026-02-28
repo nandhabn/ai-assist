@@ -14,6 +14,8 @@
 export const AI_CONFIG = {
   gemini: import.meta.env.VITE_GEMINI_API_KEY,
   chatgpt: import.meta.env.VITE_OPENAI_API_KEY,
+  /** AWS credentials for Amazon Nova (accessKey:secretKey[:region[:model]]) */
+  nova: import.meta.env.VITE_AWS_BEDROCK_CREDENTIALS,
   /** Always true — ChatGPT Tab provider works as long as chatgpt.com is open */
   chatgptTab: true,
 };
@@ -23,7 +25,7 @@ console.log("AI", AI_CONFIG.chatgptTab);
 
 // 1. Warn if keys are missing during development for a better DX.
 if (import.meta.env.DEV) {
-  if (!AI_CONFIG.gemini && !AI_CONFIG.chatgpt) {
+  if (!AI_CONFIG.gemini && !AI_CONFIG.chatgpt && !AI_CONFIG.nova) {
     console.warn(
       "[AI_CONFIG] No AI provider keys found in .env file. " +
         "AI-based prediction features will be disabled. " +
@@ -33,7 +35,7 @@ if (import.meta.env.DEV) {
 }
 
 // 2. Add a build-time warning for production builds to remind about security.
-if (import.meta.env.PROD && (AI_CONFIG.gemini || AI_CONFIG.chatgpt)) {
+if (import.meta.env.PROD && (AI_CONFIG.gemini || AI_CONFIG.chatgpt || AI_CONFIG.nova)) {
   console.warn(
     "%c[SECURITY WARNING]",
     "color: yellow; background: red; font-size: 14px; font-weight: bold;",

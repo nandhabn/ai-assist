@@ -4,12 +4,13 @@ import { AIProvider } from "../types/ai";
 import { GeminiProvider } from "./geminiProvider";
 import { ChatGPTProvider } from "./chatgptProvider";
 import { ChatGPTTabProvider } from "./chatgptTabProvider";
+import { NovaProvider } from "./novaProvider";
 
 const providerRegistry: Record<string, (apiKey: string) => AIProvider> = {
   gemini: (apiKey) => new GeminiProvider(apiKey),
   chatgpt: (apiKey) => new ChatGPTProvider(apiKey),
   "chatgpt-tab": (_apiKey) => new ChatGPTTabProvider(),
-  // nova: (apiKey) => new NovaProvider(apiKey), // Example for a future provider
+  nova: (credentials) => new NovaProvider(credentials),
 };
 
 /**
