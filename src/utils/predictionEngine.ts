@@ -381,9 +381,8 @@ function calculateSimilarity(strA: string, strB: string): number {
  * Converts the detailed PageContext into a compact format suitable for an AI prompt.
  * @param context The full page context.
  * @returns A lightweight, serializable context.
- * @private
  */
-function createCompactContext(context: PageContext): CompactContext {
+export function createCompactContext(context: PageContext): CompactContext {
   const selector = context.lastUserAction?.selector;
   const lastActionSelector: string | undefined =
     typeof selector === "string"

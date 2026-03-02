@@ -50,6 +50,22 @@ async function setTabAgentEnabled(tabId: number, enabled: boolean) {
 }
 // ---- end agent helpers ----
 
+// ---- Per-tab agent-running state (for cross-navigation resumption) ----
+const agentRunningTabs = new Map<number, boolean>();
+
+function isAgentRunningForTab(tabId: number): boolean {
+  return agentRunningTabs.get(tabId) === true;
+}
+
+function setAgentRunningForTab(tabId: number, running: boolean) {
+  if (running) {
+    agentRunningTabs.set(tabId, true);
+  } else {
+    agentRunningTabs.delete(tabId);
+  }
+}
+// ---- end agent-running helpers ----
+
 // Initialize background service worker
 chrome.runtime.onInstalled.addListener(async () => {
   console.log("[FlowRecorder] Extension installed");
@@ -82,6 +98,7 @@ chrome.tabs.onCreated.addListener(async (tab) => {
 chrome.tabs.onRemoved.addListener((tabId) => {
   chrome.storage.local.remove(missionKey(tabId)).catch(() => {});
   chrome.storage.local.remove(agentEnabledKey(tabId)).catch(() => {});
+  agentRunningTabs.delete(tabId);
 });
 
 // Handle messages from content script and popup
@@ -270,6 +287,21 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             })
             .catch(() => {});
           sendResponse({ ok: true });
+          break;
+        }
+        case "SET_AGENT_RUNNING": {
+          const tabId = sender.tab?.id;
+          if (tabId !== undefined) {
+            setAgentRunningForTab(tabId, request.running);
+          }
+          sendResponse({ ok: true });
+          break;
+        }
+        case "GET_AGENT_RUNNING": {
+          const tabId = sender.tab?.id;
+          sendResponse({
+            running: tabId !== undefined ? isAgentRunningForTab(tabId) : false,
+          });
           break;
         }
         case "CHATGPT_TAB_PROXY": {

@@ -33,10 +33,24 @@ import {
   hideFormDetectedBanner,
   setAutofillTargetForm,
   setMissionPrompt,
+  updateAgentControlUI,
+  appendAgentLogEntry,
+  clearAgentLog,
+  flashAutoExecution,
+  showAgentPlan,
 } from "./agentPanel";
 import { createAIProvider } from "@/utils/aiProviderFactory";
+import { buildQueuedProvider, QueuedAIProvider } from "@/utils/aiQueue";
 import { AI_CONFIG } from "@/config/aiConfig";
 import { AIProvider, FormFieldInfo } from "@/types/ai";
+import {
+  AgentExecutor,
+  AgentStatus,
+  AgentStep,
+  AgentSession,
+} from "@/utils/agentExecutor";
+import { buildMissionPlanPrompt } from "@/config/prompts";
+import { createCompactContext } from "@/utils/predictionEngine";
 
 // --- Global State ---
 
@@ -67,6 +81,10 @@ let aiProvider: AIProvider | null | undefined = undefined;
 
 // --- Mission Prompt ---
 let currentMission = "";
+
+// --- Agent Executor ---
+let agentExecutor: AgentExecutor | null = null;
+let isAgentExecutorActive = false;
 
 // --- AI Call Logger with timestamp ---
 function aiLog(msg: string) {
@@ -140,6 +158,14 @@ async function init() {
   sessionId = await getOrCreateSessionId();
   isAgentGloballyEnabled = await isAgentEnabled();
 
+  // Load mission from background for this tab
+  try {
+    const resp = await chrome.runtime.sendMessage({ action: "GET_MISSION_PROMPT" });
+    if (resp?.prompt) {
+      currentMission = resp.prompt;
+    }
+  } catch (_) { /* no-op */ }
+
   chrome.runtime.onMessage.addListener(handleMessage);
 
   document.addEventListener("click", captureInteraction, true);
@@ -149,6 +175,16 @@ async function init() {
 
   if (isAgentGloballyEnabled) {
     initializeAgent();
+    // Check if agent was actively running (for cross-navigation resumption)
+    chrome.runtime
+      .sendMessage({ action: "GET_AGENT_RUNNING" })
+      .then((resp: { running?: boolean } | undefined) => {
+        if (resp?.running && currentMission) {
+          console.log("[Flow Agent] Resuming agent after navigation...");
+          setTimeout(() => handleAgentStart(), 2000); // Give page time to load
+        }
+      })
+      .catch(() => {});
   }
 
   if (isRecordingActive) {
@@ -398,7 +434,12 @@ function initializeAgent() {
   if (isAgentInitialized) return;
 
   console.log("[Flow Agent] Initializing...");
-  initAgentPanel(onExecutePrediction, scheduleUpdate, generateAutofillData);
+  initAgentPanel(onExecutePrediction, scheduleUpdate, generateAutofillData, {
+    onStart: handleAgentStart,
+    onStop: handleAgentStop,
+    onPause: handleAgentPause,
+    onResume: handleAgentResume,
+  });
   toggleAgentPanelVisibility(true);
   document.addEventListener("mousemove", handleMouseMove, true);
   updateAgentPredictions();
@@ -488,37 +529,32 @@ async function setAgentState(enabled: boolean) {
 
 /**
  * Lazily initializes and returns the AI provider.
+ * Builds a QueuedAIProvider chain so requests are serialised and providers
+ * fail over automatically when a 429 / quota error is returned.
  */
-function getAIProvider(): AIProvider | null {
-  // ChatGPT Tab provider is tried first — no API key needed, just an open chatgpt.com tab
-  try {
-    return createAIProvider("chatgpt-tab", "");
-  } catch (e) {
-    console.warn("ChatGPT Tab unavailable:", e);
+function getAIProvider(): QueuedAIProvider | null {
+  const chain: ReturnType<typeof createAIProvider>[] = [];
+
+  // Priority order: ChatGPT API → Nova → Gemini → ChatGPT Tab (only if enabled)
+  if (AI_CONFIG.chatgpt) {
+    try { chain.push(createAIProvider("chatgpt", AI_CONFIG.chatgpt)); }
+    catch (e) { console.error("Failed to init ChatGPT:", e); }
   }
-  // Fall back to API-key-based providers
   if (AI_CONFIG.nova) {
-    try {
-      return createAIProvider("nova", AI_CONFIG.nova);
-    } catch (e) {
-      console.error("Failed to init Amazon Nova:", e);
-    }
+    try { chain.push(createAIProvider("nova", AI_CONFIG.nova)); }
+    catch (e) { console.error("Failed to init Amazon Nova:", e); }
   }
   if (AI_CONFIG.gemini) {
-    try {
-      return createAIProvider("gemini", AI_CONFIG.gemini);
-    } catch (e) {
-      console.error("Failed to init Gemini:", e);
-    }
+    try { chain.push(createAIProvider("gemini", AI_CONFIG.gemini)); }
+    catch (e) { console.error("Failed to init Gemini:", e); }
   }
-  if (AI_CONFIG.chatgpt) {
-    try {
-      return createAIProvider("chatgpt", AI_CONFIG.chatgpt);
-    } catch (e) {
-      console.error("Failed to init ChatGPT:", e);
-    }
+  if (AI_CONFIG.chatgptTab) {
+    try { chain.push(createAIProvider("chatgpt-tab", "")); }
+    catch (e) { console.warn("ChatGPT Tab unavailable:", e); }
   }
-  return null;
+
+  if (chain.length === 0) return null;
+  return buildQueuedProvider(chain);
 }
 
 function throttle<T extends (...args: any[]) => void>(
@@ -536,7 +572,7 @@ function throttle<T extends (...args: any[]) => void>(
 }
 
 async function updateAgentPredictions() {
-  if (isUpdating || !isAgentGloballyEnabled) return;
+  if (isUpdating || !isAgentGloballyEnabled || isAgentExecutorActive) return;
 
   if (aiProvider === undefined) {
     aiProvider = getAIProvider();
@@ -563,7 +599,7 @@ async function updateAgentPredictions() {
       canMakeAICall()
     ) {
       aiLog(
-        `Prediction AI call triggered | Confidence: ${deterministic.confidence.toFixed(3)} | Provider: ${AI_CONFIG.nova ? "Nova" : AI_CONFIG.gemini ? "Gemini" : AI_CONFIG.chatgpt ? "ChatGPT API" : "ChatGPT Tab"}`,
+        `Prediction AI call triggered | Confidence: ${deterministic.confidence.toFixed(3)} | Provider: ${AI_CONFIG.chatgpt ? "ChatGPT API" : AI_CONFIG.nova ? "Nova" : AI_CONFIG.gemini ? "Gemini" : AI_CONFIG.chatgptTab ? "ChatGPT Tab" : "None"}`,
       );
       recordAICall();
       finalResult = await maybeUseAI(context, deterministic, aiProvider);
@@ -645,6 +681,389 @@ function onExecutePrediction(prediction: RankedPrediction) {
       "Could not find element for selector:",
       prediction.action.selector,
     );
+}
+
+/**
+ * Execute a prediction and return whether the element was found and clicked.
+ * Used by the agent executor. Async so the loop can properly await before settling.
+ */
+async function executeForAgent(prediction: RankedPrediction): Promise<boolean> {
+  const element = document.querySelector(
+    prediction.action.selector,
+  ) as HTMLElement | null;
+  if (!element) {
+    console.error(
+      "[Agent] Could not find element for selector:",
+      prediction.action.selector,
+    );
+    return false;
+  }
+
+  // Scroll the element into view synchronously
+  element.scrollIntoView({ behavior: "instant", block: "center" });
+
+  // Fire the click immediately so the settle observer can detect subsequent mutations
+  element.click();
+
+  // Brief gap so any synchronous JS handlers (e.g. SPA routers) can run
+  await new Promise<void>((r) => setTimeout(r, 100));
+  return true;
+}
+
+/**
+ * Prediction function for agent mode.
+ * Always uses AI (bypasses rate limiter and confidence threshold)
+ * to get mission-aware predictions.
+ */
+async function predictForAgent(): Promise<PredictionResult> {
+  if (aiProvider === undefined) {
+    aiProvider = getAIProvider();
+  }
+
+  const context = buildPageContext();
+  const deterministic = generatePredictions(context);
+
+  // If no AI provider, fall back to deterministic
+  if (!aiProvider) {
+    return deterministic;
+  }
+
+  // Build compact context (includes mission) for the AI provider
+  const compactContext = createCompactContext(context);
+
+  try {
+    // Call AI — the provider uses the mission from compactContext in the prompt
+    const aiResult = await aiProvider.predictNextAction(compactContext);
+
+    // Check for mission-complete signal (very low confidence from AI)
+    if (
+      aiResult.confidenceEstimate === 0 ||
+      aiResult.predictedActionLabel === "MISSION_COMPLETE"
+    ) {
+      console.log("[Agent] AI indicates mission complete:", aiResult.reasoning);
+      return { topThree: [], confidence: 0 };
+    }
+
+    // Match AI choice to a deterministic prediction for the selector
+    const matchedIndex = deterministic.topThree.findIndex(
+      (p) =>
+        p.action.label.toLowerCase() ===
+        aiResult.predictedActionLabel.toLowerCase(),
+    );
+
+    if (matchedIndex >= 0) {
+      const matched = deterministic.topThree[matchedIndex];
+      const boosted: RankedPrediction = {
+        ...matched,
+        totalScore: Math.max(matched.totalScore, aiResult.confidenceEstimate),
+      };
+      const rest = deterministic.topThree.filter((_, i) => i !== matchedIndex);
+      return {
+        topThree: [boosted, ...rest].slice(0, 3),
+        confidence: aiResult.confidenceEstimate,
+      };
+    }
+
+    // Fuzzy match — AI label might be a substring
+    const fuzzyMatch = deterministic.topThree.find((p) =>
+      p.action.label
+        .toLowerCase()
+        .includes(aiResult.predictedActionLabel.toLowerCase()) ||
+      aiResult.predictedActionLabel
+        .toLowerCase()
+        .includes(p.action.label.toLowerCase()),
+    );
+
+    if (fuzzyMatch) {
+      const boosted: RankedPrediction = {
+        ...fuzzyMatch,
+        totalScore: Math.max(
+          fuzzyMatch.totalScore,
+          aiResult.confidenceEstimate,
+        ),
+      };
+      const rest = deterministic.topThree.filter((p) => p !== fuzzyMatch);
+      return {
+        topThree: [boosted, ...rest].slice(0, 3),
+        confidence: aiResult.confidenceEstimate,
+      };
+    }
+
+    // AI chose something we can't map — use deterministic
+    console.warn(
+      "[Agent] AI prediction didn't match any visible action, using deterministic",
+    );
+    return deterministic;
+  } catch (err) {
+    console.error("[Agent] AI prediction failed, using deterministic:", err);
+    return deterministic;
+  }
+}
+
+/**
+ * Detect forms on the page for agent auto-fill.
+ */
+function detectFormForAgent(): {
+  detected: boolean;
+  fields: FormFieldInfo[];
+  form: HTMLFormElement | null;
+} {
+  const forms = Array.from(document.querySelectorAll("form")).filter(
+    (f) =>
+      f.querySelectorAll(
+        "input:not([type=hidden]):not([type=submit]):not([type=button]), textarea, select",
+      ).length >= 1,
+  );
+
+  if (forms.length === 0) {
+    return { detected: false, fields: [], form: null };
+  }
+
+  // Pick the first form with empty fields
+  for (const form of forms) {
+    const emptyInputs = Array.from(
+      form.querySelectorAll<HTMLInputElement>(
+        "input:not([type=hidden]):not([type=submit]):not([type=button]):not([type=checkbox]):not([type=radio]), textarea",
+      ),
+    ).filter((input) => !input.value);
+
+    if (emptyInputs.length >= 2) {
+      // Build field metadata for this form
+      const allElements = Array.from(
+        form.querySelectorAll("input, textarea, select"),
+      );
+      const processedRadioGroups = new Set<string>();
+      const fields: FormFieldInfo[] = allElements
+        .filter((el) => {
+          const input = el as HTMLInputElement;
+          const type = input.type?.toLowerCase();
+          if (type === "submit" || type === "button" || type === "hidden")
+            return false;
+          if (type === "radio") {
+            if (!input.name || processedRadioGroups.has(input.name)) return false;
+            processedRadioGroups.add(input.name);
+            return true;
+          }
+          if (type === "checkbox") return !input.checked;
+          return !input.value;
+        })
+        .map((el) => {
+          const input = el as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement;
+          const type =
+            (input as HTMLInputElement).type?.toLowerCase() ||
+            (input.tagName.toLowerCase() === "textarea"
+              ? "textarea"
+              : input.tagName.toLowerCase());
+          let labelText = "";
+          if (input.id) {
+            const label = document.querySelector(`label[for="${input.id}"]`);
+            if (label) labelText = label.textContent?.trim() || "";
+          }
+          if (!labelText) {
+            const parentLabel = input.closest("label");
+            if (parentLabel) labelText = parentLabel.textContent?.trim() || "";
+          }
+          const ariaLabel = input.getAttribute("aria-label")?.trim() || "";
+
+          let options: string[] | undefined;
+          if (input.tagName.toLowerCase() === "select") {
+            options = Array.from((input as HTMLSelectElement).options)
+              .filter((opt) => opt.value && opt.value !== "" && !opt.disabled)
+              .map((opt) => opt.text.trim())
+              .slice(0, 20);
+          } else if (type === "radio" && (input as HTMLInputElement).name) {
+            const radios = Array.from(
+              form.querySelectorAll<HTMLInputElement>(
+                `input[type="radio"][name="${(input as HTMLInputElement).name}"]`,
+              ),
+            );
+            options = radios
+              .filter((r) => r.value && !r.disabled)
+              .map((r) => {
+                let radioLabel = "";
+                if (r.id) {
+                  const lbl = document.querySelector(`label[for="${r.id}"]`);
+                  if (lbl) radioLabel = lbl.textContent?.trim() || "";
+                }
+                if (!radioLabel) {
+                  const parentLbl = r.closest("label");
+                  if (parentLbl) radioLabel = parentLbl.textContent?.trim() || "";
+                }
+                return radioLabel || r.value;
+              })
+              .slice(0, 20);
+          }
+
+          return {
+            name: input.name || "",
+            id: input.id || "",
+            type,
+            placeholder: (input as HTMLInputElement).placeholder || "",
+            labelText,
+            ariaLabel,
+            options,
+          };
+        });
+
+      return { detected: true, fields, form };
+    }
+  }
+
+  return { detected: false, fields: [], form: null };
+}
+
+/**
+ * Fill a form using AI-generated data. Used by the agent executor.
+ */
+async function fillFormForAgent(fields: FormFieldInfo[]): Promise<boolean> {
+  try {
+    const data = await generateAutofillData(fields);
+    if (!data || Object.keys(data).length === 0) return false;
+
+    // Find the form element that contains these fields
+    const formInfo = detectFormForAgent();
+    if (formInfo.form && (window as any).__fillFormElement) {
+      await (window as any).__fillFormElement(formInfo.form, data, {
+        debug: true,
+        delay: 50,
+      });
+    } else if ((window as any).__fillActiveForm) {
+      await (window as any).__fillActiveForm(data, { debug: true, delay: 50 });
+    }
+    return true;
+  } catch (err) {
+    console.error("[Agent] Form fill failed:", err);
+    return false;
+  }
+}
+
+/**
+ * Call AI to produce a step-by-step plan for the current mission.
+ * Returns { plan, estimatedSteps } parsed from the model response.
+ */
+async function planMission(mission: string): Promise<{ plan: string; estimatedSteps?: number }> {
+  const provider = aiProvider || getAIProvider();
+  if (!provider) return { plan: "No AI provider available." };
+
+  const pageTitle = document.title;
+  const pageUrl = window.location.href;
+  const visibleActions = Array.from(
+    document.querySelectorAll<HTMLElement>("a, button, [role='button'], input, select, textarea")
+  )
+    .filter((el) => {
+      const r = el.getBoundingClientRect();
+      return r.width > 0 && r.height > 0;
+    })
+    .slice(0, 30)
+    .map((el) => el.textContent?.trim() || el.getAttribute("aria-label") || el.tagName)
+    .filter(Boolean) as string[];
+
+  const prompt = buildMissionPlanPrompt(mission, pageTitle, pageUrl, visibleActions);
+
+  try {
+    // Embed the planning prompt as the labelText of a single field so the AI receives the full instruction
+    const planField: FormFieldInfo = {
+      name: "plan",
+      id: "plan",
+      type: "text",
+      placeholder: "step-by-step plan as JSON",
+      labelText: prompt,
+      ariaLabel: "mission plan",
+    };
+    const result = await provider.generateFormData([planField], `Mission planning for: ${mission}`);
+    const raw = result.fieldValues["plan"] ?? "";
+    try {
+      const parsed = JSON.parse(raw) as { plan?: string; estimatedSteps?: number };
+      return { plan: parsed.plan ?? raw, estimatedSteps: parsed.estimatedSteps };
+    } catch {
+      return { plan: raw };
+    }
+  } catch (e) {
+    console.warn("[Agent] planMission failed:", e);
+    return { plan: "Planning failed — proceeding without a pre-defined plan." };
+  }
+}
+
+/**
+ * Persist an agent session to chrome.storage.local.
+ * Keeps the last 20 sessions under the "agentSessionIndex" key.
+ */
+async function saveAgentSession(session: AgentSession): Promise<void> {
+  try {
+    const key = session.id;
+    const indexData = await chrome.storage.local.get("agentSessionIndex");
+    const index: string[] = (indexData["agentSessionIndex"] as string[]) || [];
+    if (!index.includes(key)) {
+      index.push(key);
+      // Keep only the latest 20 sessions
+      if (index.length > 20) index.splice(0, index.length - 20);
+    }
+    await chrome.storage.local.set({ [key]: session, agentSessionIndex: index });
+    console.log(`[Agent] Session saved: ${key} (${session.status})`);
+  } catch (e) {
+    console.warn("[Agent] Failed to save session:", e);
+  }
+}
+
+/**
+ * Create or get the agent executor instance.
+ */
+function getOrCreateAgentExecutor(): AgentExecutor {
+  if (!agentExecutor) {
+    agentExecutor = new AgentExecutor({
+      predict: predictForAgent,
+      execute: executeForAgent,
+      detectForm: detectFormForAgent,
+      fillForm: fillFormForAgent,
+      planMission: (mission: string) => planMission(mission),
+      onSessionSave: (session: AgentSession) => { saveAgentSession(session); },
+      onStatusChange: (status: AgentStatus, stepCount: number, message?: string) => {
+        isAgentExecutorActive = status === "running" || status === "paused" || status === "planning";
+        updateAgentControlUI(status, stepCount, message);
+        console.log(`[Agent] Status: ${status} | Steps: ${stepCount}${message ? ` | ${message}` : ""}`);
+        // Show plan in panel when agent transitions out of planning into running
+        if (status === "running" && agentExecutor) {
+          const session = agentExecutor.getSession();
+          if (session?.plan) {
+            showAgentPlan(session.plan);
+          }
+        }
+        // Persist running state to background for cross-navigation resumption
+        chrome.runtime.sendMessage({
+          action: "SET_AGENT_RUNNING",
+          running: isAgentExecutorActive,
+        }).catch(() => {});
+      },
+      onStepComplete: (step: AgentStep) => {
+        appendAgentLogEntry(step);
+        flashAutoExecution();
+      },
+    });
+  }
+  return agentExecutor;
+}
+
+function handleAgentStart() {
+  if (!currentMission) {
+    console.warn("[Agent] Cannot start without a mission. Set a mission prompt first.");
+    updateAgentControlUI("error", 0, "Set a mission first");
+    return;
+  }
+  const executor = getOrCreateAgentExecutor();
+  clearAgentLog();
+  executor.start(currentMission);
+}
+
+function handleAgentStop() {
+  agentExecutor?.stop();
+}
+
+function handleAgentPause() {
+  agentExecutor?.pause();
+}
+
+function handleAgentResume() {
+  agentExecutor?.resume();
 }
 
 // --- Event Capture & Core Logic ---

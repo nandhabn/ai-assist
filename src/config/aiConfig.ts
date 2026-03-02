@@ -17,10 +17,9 @@ export const AI_CONFIG = {
   /** AWS credentials for Amazon Nova (accessKey:secretKey[:region[:model]]) */
   nova: import.meta.env.VITE_AWS_BEDROCK_CREDENTIALS,
   /** Always true — ChatGPT Tab provider works as long as chatgpt.com is open */
-  chatgptTab: true,
+  chatgptTab: false,
 };
 
-console.log("AI", AI_CONFIG.chatgptTab);
 // --- Developer Experience & Security Warnings ---
 
 // 1. Warn if keys are missing during development for a better DX.

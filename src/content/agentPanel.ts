@@ -10,9 +10,14 @@ import type {
   PredictionResult,
   RankedPrediction,
 } from "../utils/predictionEngine";
+import type { AgentStatus, AgentStep } from "../utils/agentExecutor";
 
 type ExecuteCallback = (prediction: RankedPrediction) => void;
 type RecalculateCallback = () => void;
+type AgentStartCallback = () => void;
+type AgentStopCallback = () => void;
+type AgentPauseCallback = () => void;
+type AgentResumeCallback = () => void;
 type AutofillDataGenerator = (
   fields: {
     name: string;
@@ -325,6 +330,118 @@ const panelCss = `
     color: #7c3aed;
   }
   .mission-cancel-btn:hover { background: #ede9fe; }
+
+  /* ---- Agent Control ---- */
+  #agent-control-section {
+    border-top: 1px solid #e0e0e0;
+    margin: 0;
+  }
+  #agent-control-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 12px;
+    justify-content: space-between;
+  }
+  .agent-control-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: #1f2937;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .agent-control-btns { display: flex; gap: 4px; }
+  .agent-start-btn, .agent-stop-btn, .agent-pause-btn {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 3px 10px;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+  }
+  .agent-start-btn {
+    background: #16a34a;
+    color: #fff;
+  }
+  .agent-start-btn:hover { background: #15803d; }
+  .agent-start-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .agent-stop-btn {
+    background: #dc2626;
+    color: #fff;
+  }
+  .agent-stop-btn:hover { background: #b91c1c; }
+  .agent-pause-btn {
+    background: #f59e0b;
+    color: #fff;
+  }
+  .agent-pause-btn:hover { background: #d97706; }
+  #agent-status-bar {
+    display: none;
+    align-items: center;
+    justify-content: space-between;
+    padding: 4px 12px 6px;
+    font-size: 11px;
+    color: #6b7280;
+  }
+  #agent-status-bar.visible { display: flex; }
+  .agent-status-dot {
+    display: inline-block;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    margin-right: 5px;
+  }
+  .agent-status-dot.running  { background: #16a34a; animation: agent-pulse 1s infinite; }
+  .agent-status-dot.planning  { background: #7c3aed; animation: agent-pulse 0.8s infinite; }
+  .agent-status-dot.paused   { background: #f59e0b; }
+  .agent-status-dot.completed, .agent-status-dot.stopped { background: #6b7280; }
+  .agent-status-dot.error    { background: #dc2626; }
+  .agent-status-dot.idle     { background: #d1d5db; }
+  @keyframes agent-pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+  }
+  #agent-log {
+    display: none;
+    max-height: 120px;
+    overflow-y: auto;
+    padding: 0 12px 8px;
+    font-size: 10px;
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+    color: #374151;
+  }
+  #agent-log.visible { display: block; }
+  .agent-log-entry {
+    padding: 2px 0;
+    border-bottom: 1px solid #f3f4f6;
+    display: flex;
+    gap: 4px;
+  }
+  .agent-log-step { color: #9ca3af; min-width: 22px; }
+  .agent-log-action { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .agent-log-ok { color: #16a34a; }
+  .agent-log-fail { color: #dc2626; }
+  #agent-plan {
+    display: none;
+    padding: 6px 12px 8px;
+    font-size: 10px;
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+    color: #4b5563;
+    white-space: pre-wrap;
+    line-height: 1.5;
+    background: #f5f3ff;
+    border-top: 1px solid #ede9fe;
+  }
+  #agent-plan.visible { display: block; }
+  .agent-plan-header {
+    font-size: 10px;
+    font-weight: 700;
+    color: #7c3aed;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 4px;
+  }
 `;
 
 const PANEL_ID = "flow-agent-panel-host";
@@ -332,6 +449,10 @@ let shadowRoot: ShadowRoot | null = null;
 let onExecute: ExecuteCallback | null = null;
 let onRecalculate: RecalculateCallback | null = null;
 let onGenerateAutofillData: AutofillDataGenerator | null = null;
+let onAgentStart: AgentStartCallback | null = null;
+let onAgentStop: AgentStopCallback | null = null;
+let onAgentPause: AgentPauseCallback | null = null;
+let onAgentResume: AgentResumeCallback | null = null;
 // The form element we want to autofill, captured at the time the user opened the
 // autofill assist panel (or clicked "Fill Form").  Stored here so an async AI call
 // can still target the right form even if focus moves elsewhere before it returns.
@@ -382,12 +503,22 @@ export function initAgentPanel(
   executeCallback: ExecuteCallback,
   recalculateCallback: RecalculateCallback,
   autofillDataGenerator?: AutofillDataGenerator,
+  agentCallbacks?: {
+    onStart: AgentStartCallback;
+    onStop: AgentStopCallback;
+    onPause: AgentPauseCallback;
+    onResume: AgentResumeCallback;
+  },
 ) {
   if (shadowRoot) return;
 
   onExecute = executeCallback;
   onRecalculate = recalculateCallback;
   onGenerateAutofillData = autofillDataGenerator || null;
+  onAgentStart = agentCallbacks?.onStart || null;
+  onAgentStop = agentCallbacks?.onStop || null;
+  onAgentPause = agentCallbacks?.onPause || null;
+  onAgentResume = agentCallbacks?.onResume || null;
   const host = getHostElement();
   shadowRoot = host.attachShadow({ mode: "open" });
 
@@ -449,6 +580,22 @@ export function initAgentPanel(
             </div>
           </div>
         </div>
+      </div>
+      <div id="agent-control-section">
+        <div id="agent-control-header">
+          <span class="agent-control-label">🤖 Agent Mode</span>
+          <div class="agent-control-btns">
+            <button id="agent-pause-btn" class="agent-pause-btn" style="display:none;">⏸</button>
+            <button id="agent-start-btn" class="agent-start-btn">▶ Start</button>
+            <button id="agent-stop-btn" class="agent-stop-btn" style="display:none;">■ Stop</button>
+          </div>
+        </div>
+        <div id="agent-status-bar">
+          <span><span id="agent-status-dot" class="agent-status-dot idle"></span><span id="agent-status-text">Idle</span></span>
+          <span id="agent-step-count">0 steps</span>
+        </div>
+        <div id="agent-plan"><div class="agent-plan-header">🧠 Plan</div><span id="agent-plan-text"></span></div>
+        <div id="agent-log"></div>
       </div>
     `;
   shadowRoot.appendChild(container);
@@ -565,6 +712,30 @@ export function initAgentPanel(
     })
     .catch(() => {});
   // ---- end Mission Prompt wiring ----
+
+  // ---- Agent Control wiring ----
+  const agentStartBtn = shadowRoot.getElementById("agent-start-btn") as HTMLButtonElement;
+  const agentStopBtn = shadowRoot.getElementById("agent-stop-btn") as HTMLButtonElement;
+  const agentPauseBtn = shadowRoot.getElementById("agent-pause-btn") as HTMLButtonElement;
+
+  agentStartBtn.addEventListener("click", () => {
+    if (onAgentStart) onAgentStart();
+  });
+
+  agentStopBtn.addEventListener("click", () => {
+    if (onAgentStop) onAgentStop();
+  });
+
+  agentPauseBtn.addEventListener("click", () => {
+    // Toggle pause/resume
+    const statusText = shadowRoot!.getElementById("agent-status-text");
+    if (statusText?.textContent?.toLowerCase().includes("paused")) {
+      if (onAgentResume) onAgentResume();
+    } else {
+      if (onAgentPause) onAgentPause();
+    }
+  });
+  // ---- end Agent Control wiring ----
 
   shadowRoot
     .getElementById("autofill-btn")
@@ -927,6 +1098,124 @@ export function flashAutoExecution() {
       container.classList.remove("auto-executed");
     }, 300);
   }
+}
+
+/**
+ * Update the agent control section to reflect current agent status.
+ */
+export function updateAgentControlUI(
+  status: AgentStatus,
+  stepCount: number,
+  message?: string,
+) {
+  if (!shadowRoot) return;
+
+  const startBtn = shadowRoot.getElementById("agent-start-btn") as HTMLButtonElement | null;
+  const stopBtn = shadowRoot.getElementById("agent-stop-btn") as HTMLButtonElement | null;
+  const pauseBtn = shadowRoot.getElementById("agent-pause-btn") as HTMLButtonElement | null;
+  const statusBar = shadowRoot.getElementById("agent-status-bar");
+  const statusDot = shadowRoot.getElementById("agent-status-dot");
+  const statusText = shadowRoot.getElementById("agent-status-text");
+  const stepCountEl = shadowRoot.getElementById("agent-step-count");
+
+  // Button visibility
+  if (startBtn && stopBtn && pauseBtn) {
+    if (status === "running") {
+      startBtn.style.display = "none";
+      stopBtn.style.display = "inline-block";
+      pauseBtn.style.display = "inline-block";
+      pauseBtn.textContent = "⏸";
+    } else if (status === "paused") {
+      startBtn.style.display = "none";
+      stopBtn.style.display = "inline-block";
+      pauseBtn.style.display = "inline-block";
+      pauseBtn.textContent = "▶";
+    } else if (status === "planning") {
+      startBtn.style.display = "none";
+      stopBtn.style.display = "inline-block";
+      pauseBtn.style.display = "none";
+    } else {
+      startBtn.style.display = "inline-block";
+      stopBtn.style.display = "none";
+      pauseBtn.style.display = "none";
+    }
+  }
+
+  // Status bar
+  if (statusBar) {
+    statusBar.classList.toggle("visible", status !== "idle");
+  }
+
+  // Status dot
+  if (statusDot) {
+    statusDot.className = `agent-status-dot ${status}`;
+  }
+
+  // Status text
+  if (statusText) {
+    const labels: Record<string, string> = {
+      idle: "Idle",
+      planning: "Thinking…",
+      running: "Running…",
+      paused: "Paused",
+      completed: "Completed",
+      stopped: "Stopped",
+      error: "Error",
+    };
+    statusText.textContent = message
+      ? `${labels[status] || status} — ${message}`
+      : labels[status] || status;
+  }
+
+  // Step count
+  if (stepCountEl) {
+    stepCountEl.textContent = `${stepCount} step${stepCount !== 1 ? "s" : ""}`;
+  }
+}
+
+/**
+ * Append a step entry to the agent log. The log auto-scrolls to the bottom.
+ */
+export function appendAgentLogEntry(step: AgentStep) {
+  if (!shadowRoot) return;
+  const log = shadowRoot.getElementById("agent-log");
+  if (!log) return;
+
+  log.classList.add("visible");
+
+  const entry = document.createElement("div");
+  entry.className = "agent-log-entry";
+  entry.innerHTML = `<span class="agent-log-step">${step.stepNumber}.</span>`
+    + `<span class="agent-log-action">${escapeHtml(step.action)}</span>`
+    + `<span class="${step.success ? "agent-log-ok" : "agent-log-fail"}">${step.success ? "✓" : "✗"}</span>`;
+  log.appendChild(entry);
+  log.scrollTop = log.scrollHeight;
+}
+
+/** Show the AI-generated plan in the plan box. */
+export function showAgentPlan(plan: string) {
+  if (!shadowRoot) return;
+  const box = shadowRoot.getElementById("agent-plan");
+  const text = shadowRoot.getElementById("agent-plan-text");
+  if (!box || !text) return;
+  text.textContent = plan;
+  box.classList.toggle("visible", plan.length > 0);
+}
+
+/** Clear the agent log (called on new agent start). */
+export function clearAgentLog() {
+  if (!shadowRoot) return;
+  const log = shadowRoot.getElementById("agent-log");
+  if (log) {
+    log.innerHTML = "";
+    log.classList.remove("visible");
+  }
+  // Also clear the plan box on fresh start
+  showAgentPlan("");
+}
+
+function escapeHtml(str: string): string {
+  return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
 export function toggleAgentPanelVisibility(visible: boolean) {

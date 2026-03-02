@@ -96,6 +96,93 @@ Respond in STRICT JSON format with the following structure:
 }`;
 }
 
+// ─── Agent Planning Prompt ─────────────────────────────────────────────────────
+
+/**
+ * Prompt that asks the AI to produce a concise numbered action plan for the mission
+ * before the agent starts executing. Returned as a plain string the user can inspect.
+ */
+export function buildMissionPlanPrompt(
+  mission: string,
+  pageTitle: string,
+  pageUrl: string,
+  visibleActions: string[],
+): string {
+  return `You are an autonomous web agent about to execute a mission on a website.
+Analyse the mission and the current page, then produce a concise NUMBERED action plan (max 10 steps).
+
+MISSION: ${mission}
+CURRENT PAGE: ${pageTitle} (${pageUrl})
+VISIBLE ACTIONS: ${visibleActions.slice(0, 20).join(", ")}
+
+Rules:
+- Each step must be a concrete browser action (click X, fill form Y, navigate to Z).
+- Be specific about which elements or links to use based on what is visible.
+- If the mission spans multiple pages, include navigation steps.
+- End with a "Verify: …" step that confirms success.
+
+Respond in STRICT JSON:
+{
+  "plan": "1. …\\n2. …\\n3. …",
+  "estimatedSteps": <number>
+}`;
+}
+
+// ─── Agent-Mode Prediction Prompts ────────────────────────────────────────────
+
+/** System message used for agent-mode prediction (always uses AI). */
+export const AGENT_PREDICTION_SYSTEM_PROMPT =
+  "You are an autonomous web agent executing a multi-step mission on behalf of the user. " +
+  "You observe the current page state and choose the single best action that advances the mission. " +
+  "If the mission appears to be complete, set confidenceEstimate to 0. Respond in STRICT JSON format.";
+
+/**
+ * User prompt for agent-mode prediction.
+ * Emphasizes the mission and includes step history for context.
+ */
+export function buildAgentPredictionPrompt(
+  context: CompactContext,
+  stepHistory: { action: string; pageUrl: string }[] = [],
+): string {
+  const {
+    pageIntent,
+    lastActionLabel,
+    topVisibleActions,
+    formFields,
+    pageMeta,
+    mission,
+  } = context;
+
+  const metaBlock = formatPageMeta(pageMeta);
+  const metaSection = metaBlock ? `\n${metaBlock}\n` : "";
+
+  const historyBlock =
+    stepHistory.length > 0
+      ? `\nPrevious Steps (most recent last):\n${stepHistory
+          .slice(-10)
+          .map((s, i) => `  ${i + 1}. ${s.action} (on ${s.pageUrl})`)
+          .join("\n")}\n`
+      : "";
+
+  return `You are an autonomous agent completing the following mission:
+MISSION: ${mission || "(no mission set — explore the page)"}
+${metaSection}${historyBlock}
+Current Page Intent: ${pageIntent}
+Last Action Taken: ${lastActionLabel || "None"}
+Visible Actions: ${JSON.stringify(topVisibleActions)}
+Available Form Fields: ${JSON.stringify(formFields)}
+
+Choose the single best next action that advances the mission.
+If the mission appears COMPLETE (i.e. the page shows a success message, confirmation, or the goal has been achieved), set confidenceEstimate to 0 to signal completion.
+
+Respond in STRICT JSON:
+{
+  "predictedActionLabel": "string (must be one of the Visible Actions, or 'MISSION_COMPLETE' if done)",
+  "reasoning": "string (explain why this action advances the mission)",
+  "confidenceEstimate": "number (0.0 = mission complete, 0.01-1.0 = confidence in this action)"
+}`;
+}
+
 // ─── Form Data Generation Prompts ─────────────────────────────────────────────
 
 /** System message used by ChatGPT API for form-data generation calls. */
