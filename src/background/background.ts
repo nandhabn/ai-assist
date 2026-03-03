@@ -38,15 +38,11 @@ function agentEnabledKey(tabId: number) {
 }
 async function getTabAgentEnabled(tabId: number): Promise<boolean> {
   const data = await chrome.storage.local.get(agentEnabledKey(tabId));
-  // Default to true when not explicitly disabled
-  return data[agentEnabledKey(tabId)] !== false;
+  // Default to false when not explicitly enabled
+  return data[agentEnabledKey(tabId)] === true;
 }
 async function setTabAgentEnabled(tabId: number, enabled: boolean) {
-  if (enabled) {
-    await chrome.storage.local.remove(agentEnabledKey(tabId));
-  } else {
-    await chrome.storage.local.set({ [agentEnabledKey(tabId)]: false });
-  }
+  await chrome.storage.local.set({ [agentEnabledKey(tabId)]: enabled });
 }
 // ---- end agent helpers ----
 
@@ -254,7 +250,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           // Agent is always disabled on ChatGPT tabs (the bridge handles those).
           const tabId = (request.tabId as number | undefined) ?? sender.tab?.id;
           if (tabId === undefined) {
-            sendResponse({ enabled: true });
+            sendResponse({ enabled: false });
             break;
           }
           const tab = await chrome.tabs.get(tabId).catch(() => null);
@@ -371,6 +367,28 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             await chrome.storage.session.remove(storageKey);
           }
           sendResponse({ result });
+          break;
+        }
+        case "NOVA_CONVERSE": {
+          // Proxy Bedrock fetch through the background worker to bypass CORS.
+          // The content script performs SigV4 signing and sends us the fully-signed
+          // headers + body; we just execute the fetch and return the response text.
+          try {
+            const { url, headers, body } = request as {
+              url: string;
+              headers: Record<string, string>;
+              body: string;
+            };
+            const resp = await fetch(url, { method: "POST", headers, body });
+            const text = await resp.text();
+            if (!resp.ok) {
+              sendResponse({ ok: false, status: resp.status, body: text });
+            } else {
+              sendResponse({ ok: true, body: text });
+            }
+          } catch (err: any) {
+            sendResponse({ ok: false, error: err.message });
+          }
           break;
         }
         default:

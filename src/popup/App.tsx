@@ -8,7 +8,7 @@ import Dashboard from "./components/Dashboard";
 export default function App() {
   const [view, setView] = React.useState("dashboard"); // dashboard, control, flow, ai
   const [isRecording, setIsRecording] = React.useState(false);
-  const [isAgentEnabled, setIsAgentEnabled] = React.useState(true);
+  const [isAgentEnabled, setIsAgentEnabled] = React.useState(false);
   const [isChatGPTTab, setIsChatGPTTab] = React.useState(false);
   const [eventCount, setEventCount] = React.useState(0);
 
@@ -32,7 +32,7 @@ export default function App() {
         chrome.runtime.sendMessage(
           { action: "GET_AGENT_ENABLED", tabId },
           (resp) => {
-            setIsAgentEnabled(resp?.enabled !== false);
+            setIsAgentEnabled(resp?.enabled === true);
             setIsChatGPTTab(resp?.chatgptTab === true);
           },
         );

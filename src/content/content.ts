@@ -39,8 +39,9 @@ import {
   flashAutoExecution,
   showAgentPlan,
 } from "./agentPanel";
-import { createAIProvider } from "@/utils/aiProviderFactory";
+import { createAIProvider, createNovaProvider } from "@/utils/aiProviderFactory";
 import { buildQueuedProvider, QueuedAIProvider } from "@/utils/aiQueue";
+import { getGeminiCallStats, resetGeminiCallStats } from "@/utils/geminiProvider";
 import { AI_CONFIG } from "@/config/aiConfig";
 import { AIProvider, FormFieldInfo } from "@/types/ai";
 import {
@@ -56,7 +57,7 @@ import { createCompactContext } from "@/utils/predictionEngine";
 
 let sessionId: string | null = null;
 let isRecordingActive = false;
-let isAgentGloballyEnabled = true; // Default state, will be updated from storage
+let isAgentGloballyEnabled = false; // Default state, will be updated from storage
 let isAgentInitialized = false;
 let hasUserInteracted = false; // Don't fire AI on page load — wait for first real interaction
 
@@ -192,6 +193,21 @@ async function init() {
   }
 
   console.log("[FlowRecorder] Content script initialized.");
+
+  // Expose a debug namespace on window for DevTools inspection
+  (window as any).__flowAgent = {
+    /** Gemini API call counts for this page session: { total, success, error } */
+    geminiStats: () => getGeminiCallStats(),
+    /** Reset Gemini call counters */
+    resetGeminiStats: () => { resetGeminiCallStats(); console.log("[FlowAgent] Gemini stats reset."); },
+    /** Current rate-limiter state */
+    rlState: () => getRLState(),
+    /** Whether the agent is currently active */
+    agentActive: () => isAgentExecutorActive,
+    /** Current agent session details */
+    agentSession: () => agentExecutor?.getSession() ?? null,
+  };
+  console.log("[FlowAgent] Debug helpers available via window.__flowAgent");
 }
 
 // --- Agent Logic ---
@@ -540,8 +556,8 @@ function getAIProvider(): QueuedAIProvider | null {
     try { chain.push(createAIProvider("chatgpt", AI_CONFIG.chatgpt)); }
     catch (e) { console.error("Failed to init ChatGPT:", e); }
   }
-  if (AI_CONFIG.nova) {
-    try { chain.push(createAIProvider("nova", AI_CONFIG.nova)); }
+  if (AI_CONFIG.novaConfig) {
+    try { chain.push(createNovaProvider(AI_CONFIG.novaConfig)); }
     catch (e) { console.error("Failed to init Amazon Nova:", e); }
   }
   if (AI_CONFIG.gemini) {
@@ -599,7 +615,7 @@ async function updateAgentPredictions() {
       canMakeAICall()
     ) {
       aiLog(
-        `Prediction AI call triggered | Confidence: ${deterministic.confidence.toFixed(3)} | Provider: ${AI_CONFIG.chatgpt ? "ChatGPT API" : AI_CONFIG.nova ? "Nova" : AI_CONFIG.gemini ? "Gemini" : AI_CONFIG.chatgptTab ? "ChatGPT Tab" : "None"}`,
+        `Prediction AI call triggered | Confidence: ${deterministic.confidence.toFixed(3)} | Provider: ${AI_CONFIG.chatgpt ? "ChatGPT API" : AI_CONFIG.novaConfig ? "Nova" : AI_CONFIG.gemini ? "Gemini" : AI_CONFIG.chatgptTab ? "ChatGPT Tab" : "None"}`,
       );
       recordAICall();
       finalResult = await maybeUseAI(context, deterministic, aiProvider);

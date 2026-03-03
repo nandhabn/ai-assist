@@ -63,8 +63,8 @@ export async function setRecordingStatus(status: boolean): Promise<void> {
 
 export async function isAgentEnabled(): Promise<boolean> {
   const data = await chrome.storage.local.get(STORAGE_KEYS.AGENT_ENABLED);
-  // Default to true if the value is not explicitly set to false
-  return data[STORAGE_KEYS.AGENT_ENABLED] !== false;
+  // Default to false if the value is not explicitly set to true
+  return data[STORAGE_KEYS.AGENT_ENABLED] === true;
 }
 
 export async function setAgentEnabled(status: boolean): Promise<void> {

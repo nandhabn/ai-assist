@@ -19,8 +19,27 @@ function aiLog(msg: string) {
   console.log(`[AI Call Log] [${ts}] ${msg}`);
 }
 
+// ─── Gemini call counter (persists for the lifetime of the content script) ────
+const geminiStats = { total: 0, success: 0, error: 0 };
+
+function geminiStatsLabel() {
+  return `calls=${geminiStats.total} ok=${geminiStats.success} err=${geminiStats.error}`;
+}
+
+/** Returns a snapshot of Gemini API call counts for this page session. */
+export function getGeminiCallStats() {
+  return { ...geminiStats };
+}
+
+/** Resets all Gemini call counters to zero. */
+export function resetGeminiCallStats() {
+  geminiStats.total = 0;
+  geminiStats.success = 0;
+  geminiStats.error = 0;
+}
+
 const GEMINI_API_ENDPOINT =
-  "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent";
+  "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent";
 
 /**
  * An AIProvider implementation that uses Google's Gemini Pro model.
@@ -45,19 +64,21 @@ export class GeminiProvider implements AIProvider {
   }
 
   async predictNextAction(context: CompactContext): Promise<AIPrediction> {
+    geminiStats.total++;
     aiLog(
-      `[Gemini] predictNextAction START | Intent: ${context.pageIntent} | Actions: ${context.topVisibleActions.length} | Fields: ${context.formFields.length}`,
+      `[Gemini] predictNextAction START | Intent: ${context.pageIntent} | Actions: ${context.topVisibleActions.length} | Fields: ${context.formFields.length} | ${geminiStatsLabel()}`,
     );
 
     const prompt = buildPredictionPrompt(context);
 
     try {
       const response = await fetch(
-        `${GEMINI_API_ENDPOINT}?key=${this.apiKey}`,
+        GEMINI_API_ENDPOINT,
         {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
+            "x-goog-api-key": this.apiKey,
           },
           body: JSON.stringify({
             contents: [{ parts: [{ text: prompt }] }],
@@ -90,9 +111,11 @@ export class GeminiProvider implements AIProvider {
         throw new Error("Invalid JSON structure from Gemini API.");
       }
 
+      geminiStats.success++;
       return prediction;
     } catch (error) {
-      aiLog(`[Gemini] predictNextAction ERROR | ${error}`);
+      geminiStats.error++;
+      aiLog(`[Gemini] predictNextAction ERROR | ${error} | ${geminiStatsLabel()}`);
       console.error("Error in GeminiProvider:", error);
       throw new Error("Failed to get prediction from Gemini.");
     }
@@ -102,18 +125,19 @@ export class GeminiProvider implements AIProvider {
     fields: FormFieldInfo[],
     pageContext?: string,
   ): Promise<AIFormData> {
+    geminiStats.total++;
     aiLog(
-      `[Gemini] generateFormData START | Fields: ${fields.length} | Context: ${pageContext || "none"}`,
+      `[Gemini] generateFormData START | Fields: ${fields.length} | Context: ${pageContext || "none"} | ${geminiStatsLabel()}`,
     );
     const fieldDescriptions = formatFieldDescriptions(fields);
     const prompt = buildFormDataPrompt(fieldDescriptions, pageContext);
 
     try {
       const response = await fetch(
-        `${GEMINI_API_ENDPOINT}?key=${this.apiKey}`,
+        GEMINI_API_ENDPOINT,
         {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: { "Content-Type": "application/json", "x-goog-api-key": this.apiKey },
           body: JSON.stringify({
             contents: [{ parts: [{ text: prompt }] }],
             generationConfig: {
@@ -145,13 +169,20 @@ export class GeminiProvider implements AIProvider {
       }
 
       aiLog(
-        `[Gemini] generateFormData SUCCESS | Keys: ${Object.keys(parsed.fieldValues).join(", ")}`,
+        `[Gemini] generateFormData SUCCESS | Keys: ${Object.keys(parsed.fieldValues).join(", ")} | ${geminiStatsLabel()}`,
       );
+      geminiStats.success++;
       return parsed;
     } catch (error) {
-      aiLog(`[Gemini] generateFormData ERROR | ${error}`);
+      geminiStats.error++;
+      aiLog(`[Gemini] generateFormData ERROR | ${error} | ${geminiStatsLabel()}`);
       console.error("Error generating form data with Gemini:", error);
       throw new Error("Failed to generate form data from Gemini.");
     }
+  }
+
+  /** Returns a snapshot of the Gemini API call statistics for this session. */
+  static getCallStats(): { total: number; success: number; error: number } {
+    return { ...geminiStats };
   }
 }

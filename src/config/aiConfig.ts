@@ -14,17 +14,49 @@
 export const AI_CONFIG = {
   gemini: import.meta.env.VITE_GEMINI_API_KEY,
   chatgpt: import.meta.env.VITE_OPENAI_API_KEY,
-  /** AWS credentials for Amazon Nova (accessKey:secretKey[:region[:model]]) */
-  nova: import.meta.env.VITE_AWS_BEDROCK_CREDENTIALS,
-  /** Always true — ChatGPT Tab provider works as long as chatgpt.com is open */
+  /**
+   * Amazon Bedrock / Nova credentials.
+   * Prefer the individual vars (VITE_AWS_ACCESS_KEY etc.).
+   * Falls back to the legacy colon-separated VITE_AWS_BEDROCK_CREDENTIALS string.
+   */
+  novaConfig: (() => {
+    const accessKey = import.meta.env.VITE_AWS_ACCESS_KEY;
+    const secretKey = import.meta.env.VITE_AWS_SECRET_KEY;
+    const region    = import.meta.env.VITE_AWS_REGION    || "us-east-1";
+    const apiKey    = import.meta.env.VITE_AWS_BEDROCK_API_KEY;
+    const model     = import.meta.env.VITE_AWS_NOVA_MODEL || "amazon.nova-lite-v2:0";
+    const legacy    = import.meta.env.VITE_AWS_BEDROCK_CREDENTIALS;
+
+    // Individual vars take priority
+    if (accessKey && secretKey) {
+      return { accessKey, secretKey, region, model, bedrockApiKey: apiKey };
+    }
+    // Fall back to legacy colon-separated string
+    if (legacy) {
+      const parts = legacy.split(":");
+      return {
+        accessKey:    parts[0],
+        secretKey:    parts[1],
+        region:       (parts.length >= 3 && parts[2].includes("-")) ? parts[2] : (parts[3] || "us-east-1"),
+        bedrockApiKey: undefined as string | undefined,
+      };
+    }
+    return null;
+  })(),
+  /** Set true to use the open ChatGPT tab as a provider */
   chatgptTab: false,
 };
+
+// Convenience alias used in provider-presence checks
+// (keep existing callers like `if (AI_CONFIG.nova)` working)
+(AI_CONFIG as any).nova = AI_CONFIG.novaConfig;
 
 // --- Developer Experience & Security Warnings ---
 
 // 1. Warn if keys are missing during development for a better DX.
 if (import.meta.env.DEV) {
-  if (!AI_CONFIG.gemini && !AI_CONFIG.chatgpt && !AI_CONFIG.nova) {
+  const hasNova = !!AI_CONFIG.novaConfig;
+  if (!AI_CONFIG.gemini && !AI_CONFIG.chatgpt && !hasNova) {
     console.warn(
       "[AI_CONFIG] No AI provider keys found in .env file. " +
         "AI-based prediction features will be disabled. " +
@@ -34,7 +66,7 @@ if (import.meta.env.DEV) {
 }
 
 // 2. Add a build-time warning for production builds to remind about security.
-if (import.meta.env.PROD && (AI_CONFIG.gemini || AI_CONFIG.chatgpt || AI_CONFIG.nova)) {
+if (import.meta.env.PROD && (AI_CONFIG.gemini || AI_CONFIG.chatgpt || AI_CONFIG.novaConfig)) {
   console.warn(
     "%c[SECURITY WARNING]",
     "color: yellow; background: red; font-size: 14px; font-weight: bold;",

@@ -139,73 +139,71 @@ async function signRequest(
 
 // ─── Nova Provider ───────────────────────────────────────────────────────────
 
+export interface NovaConfig {
+  /** AWS IAM Access Key ID */
+  accessKey: string;
+  /** AWS IAM Secret Access Key */
+  secretKey: string;
+  /** AWS region, e.g. us-east-1 (default) */
+  region?: string;
+  /** Bedrock model ID (default: amazon.nova-lite-v1:0) */
+  model?: string;
+  /** AWS STS session token (only needed for temporary/assumed-role credentials) */
+  sessionToken?: string;
+  /**
+   * Bedrock API key — alternative to IAM credentials.
+   * When provided, SigV4 signing is skipped and this key is sent as x-api-key.
+   * Create one in the AWS Bedrock console under "API keys".
+   */
+  bedrockApiKey?: string;
+}
+
 /**
  * An AIProvider implementation that uses Amazon Nova Lite via AWS Bedrock.
  *
- * Uses the Bedrock Runtime Converse API (`/model/{modelId}/converse`)
- * for a clean request/response interface with system + user messages.
+ * Supports two auth modes:
+ *   1. IAM credentials (accessKey + secretKey) with SigV4 signing
+ *   2. Bedrock API key (bedrockApiKey) — simpler, no signing needed
  *
- * @Security-Note AWS credentials (access key, secret key, optional session token)
- * are sensitive. They should be stored in `chrome.storage.local`, provided
- * through an options page, or ideally use temporary credentials from a backend.
+ * The Bedrock fetch is always proxied through the background worker to bypass CORS.
  */
 export class NovaProvider implements AIProvider {
-  private accessKey: string;
-  private secretKey: string;
-  private region: string;
-  private model: string;
-  private sessionToken?: string;
+  private cfg: Required<Omit<NovaConfig, 'sessionToken' | 'bedrockApiKey'>> &
+    Pick<NovaConfig, 'sessionToken' | 'bedrockApiKey'>;
 
-  /**
-   * @param credentials Colon-separated string: "accessKey:secretKey" or
-   *   "accessKey:secretKey:sessionToken". Region and model can optionally
-   *   be appended: "accessKey:secretKey:region:model".
-   */
-  constructor(credentials: string) {
-    if (!credentials) {
-      throw new Error("NovaProvider requires AWS credentials.");
+  constructor(config: NovaConfig) {
+    if (!config.accessKey || !config.secretKey) {
+      throw new Error("NovaProvider requires at least accessKey and secretKey.");
     }
-    const parts = credentials.split(":");
-
-    if (parts.length < 2) {
-      throw new Error(
-        'NovaProvider credentials must be "accessKey:secretKey" or ' +
-          '"accessKey:secretKey:sessionToken" or "accessKey:secretKey:region:model".',
-      );
-    }
-
-    this.accessKey = parts[0];
-    this.secretKey = parts[1];
-
-    // Detect format: if third part looks like a region (contains a hyphen), treat as region
-    if (parts.length >= 3 && parts[2].includes("-")) {
-      this.region = parts[2];
-      this.model = parts[3] || "amazon.nova-lite-v1:0";
-    } else if (parts.length >= 3) {
-      // Third part is a session token
-      this.sessionToken = parts[2];
-      this.region = parts[3] || "us-east-1";
-      this.model = parts[4] || "amazon.nova-lite-v1:0";
-    } else {
-      this.region = "us-east-1";
-      this.model = "amazon.nova-lite-v1:0";
-    }
+    this.cfg = {
+      accessKey:    config.accessKey,
+      secretKey:    config.secretKey,
+      region:       config.region       || "us-east-1",
+      model:        config.model        || "amazon.nova-lite-v2:0",
+      sessionToken: config.sessionToken,
+      bedrockApiKey: config.bedrockApiKey,
+    };
+    const authMode = this.cfg.bedrockApiKey ? "Bedrock API key" : "SigV4 (IAM)";
+    aiLog(
+      `[Nova] Initialized | AccessKey: ${this.cfg.accessKey.slice(0, 4)}**** | Region: ${this.cfg.region} | Model: ${this.cfg.model} | Auth: ${authMode}`,
+    );
   }
 
   private get host(): string {
-    return `bedrock-runtime.${this.region}.amazonaws.com`;
+    return `bedrock-runtime.${this.cfg.region}.amazonaws.com`;
   }
 
   private get converseEndpoint(): string {
-    return `https://${this.host}/model/${encodeURIComponent(this.model)}/converse`;
+    return `https://${this.host}/model/${encodeURIComponent(this.cfg.model)}/converse`;
   }
 
   private get conversePath(): string {
-    return `/model/${encodeURIComponent(this.model)}/converse`;
+    return `/model/${encodeURIComponent(this.cfg.model)}/converse`;
   }
 
   /**
-   * Calls the Bedrock Converse API.
+   * Calls the Bedrock Converse API via the background worker to bypass CORS.
+   * SigV4 signing is done here in the content script; only the fetch is proxied.
    */
   private async converse(
     systemPrompt: string,
@@ -226,33 +224,49 @@ export class NovaProvider implements AIProvider {
       },
     });
 
-    const headers = await signRequest(
-      "POST",
-      this.host,
-      this.conversePath,
-      body,
-      this.region,
-      this.accessKey,
-      this.secretKey,
-      this.sessionToken,
-    );
-
-    const response = await fetch(this.converseEndpoint, {
-      method: "POST",
-      headers,
-      body,
-    });
-
-    if (!response.ok) {
-      const errorBody = await response.text();
-      throw new Error(
-        `Bedrock API error ${response.status}: ${errorBody}`,
+    let headers: Record<string, string>;
+    if (this.cfg.bedrockApiKey) {
+      // Bedrock API key auth — Bearer token, no SigV4 needed
+      headers = {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${this.cfg.bedrockApiKey}`,
+      };
+    } else {
+      // IAM credentials — sign with SigV4
+      headers = await signRequest(
+        "POST",
+        this.host,
+        this.conversePath,
+        body,
+        this.cfg.region,
+        this.cfg.accessKey,
+        this.cfg.secretKey,
+        this.cfg.sessionToken,
       );
     }
 
-    const data = await response.json();
-    // Converse API response shape:
-    // { output: { message: { role: "assistant", content: [{ text: "..." }] } } }
+    // Route the actual fetch through the background worker to avoid CORS blocks.
+    // Bedrock does not send Access-Control-Allow-Origin headers, so a direct
+    // content-script fetch would be rejected by the browser.
+    const result = await new Promise<{ ok: boolean; body?: string; status?: number; error?: string }>(
+      (resolve, reject) => {
+        chrome.runtime.sendMessage(
+          { action: "NOVA_CONVERSE", url: this.converseEndpoint, headers, body },
+          (resp) => {
+            if (chrome.runtime.lastError) {
+              return reject(new Error(chrome.runtime.lastError.message));
+            }
+            resolve(resp);
+          },
+        );
+      },
+    );
+
+    if (!result.ok) {
+      throw new Error(`Bedrock API error ${result.status ?? ""}: ${result.body ?? result.error}`);
+    }
+
+    const data = JSON.parse(result.body!);
     const text = data?.output?.message?.content?.[0]?.text;
     if (!text) {
       throw new Error("No text in Bedrock Converse response.");
@@ -277,7 +291,7 @@ export class NovaProvider implements AIProvider {
 
   async predictNextAction(context: CompactContext): Promise<AIPrediction> {
     aiLog(
-      `[Nova] predictNextAction START | Model: ${this.model} | Intent: ${context.pageIntent}`,
+      `[Nova] predictNextAction START | Model: ${this.cfg.model} | Intent: ${context.pageIntent}`,
     );
 
     const prompt = buildPredictionPrompt(context);
@@ -314,7 +328,7 @@ export class NovaProvider implements AIProvider {
     pageContext?: string,
   ): Promise<AIFormData> {
     aiLog(
-      `[Nova] generateFormData START | Model: ${this.model} | Fields: ${fields.length} | Context: ${pageContext || "none"}`,
+      `[Nova] generateFormData START | Model: ${this.cfg.model} | Fields: ${fields.length} | Context: ${pageContext || "none"}`,
     );
 
     const fieldDescriptions = formatFieldDescriptions(fields);

@@ -442,6 +442,81 @@ const panelCss = `
     letter-spacing: 0.05em;
     margin-bottom: 4px;
   }
+
+  /* ---- Theme toggle button ---- */
+  .theme-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 2px 5px;
+    font-size: 14px;
+    line-height: 1;
+    border-radius: 5px;
+    margin-left: 4px;
+    opacity: 0.7;
+    transition: opacity 0.2s, background 0.2s;
+  }
+  .theme-btn:hover { opacity: 1; background: rgba(0,0,0,0.06); }
+  .panel-container.dark .theme-btn:hover { background: rgba(255,255,255,0.08); }
+
+  /* ---- Dark theme ---- */
+  .panel-container.dark {
+    background: #1e1e2e;
+    border-color: #374151;
+    box-shadow: 0 6px 16px rgba(0,0,0,0.4);
+  }
+  .panel-container.dark .header { border-bottom-color: #2d2d42; }
+  .panel-container.dark .header-title { color: #e5e7eb; }
+  .panel-container.dark .confidence-text { color: #9ca3af; }
+  .panel-container.dark .progress-bar-container { background-color: #374151; }
+  .panel-container.dark .prediction-row:hover { background-color: #2d2d42; }
+  .panel-container.dark .prediction-label { color: #e5e7eb; }
+  .panel-container.dark .score-badge { background: #374151; color: #e5e7eb; }
+  .panel-container.dark .run-btn { color: #60a5fa; }
+  .panel-container.dark .run-btn:hover { color: #93c5fd; }
+  .panel-container.dark .why-toggle { color: #9ca3af; }
+  .panel-container.dark .why-details { background: #2d2d42; }
+  .panel-container.dark .why-details pre { color: #d1d5db; }
+  .panel-container.dark #autofill-assist { background: #1e3155; border-color: #1e40af; }
+  .panel-container.dark .autofill-text { color: #93c5fd; }
+  .panel-container.dark .autofill-btn { background-color: #2563eb; }
+  .panel-container.dark .autofill-btn:hover { background-color: #1d4ed8; }
+  .panel-container.dark #form-banner { background: #14532d20; border-color: #166534; }
+  .panel-container.dark .form-banner-text { color: #86efac; }
+  .panel-container.dark .form-item { background: #1e3a2f; border-color: #166534; }
+  .panel-container.dark .form-item-label { color: #86efac; }
+  .panel-container.dark #mission-section { border-top-color: #2d2d42; }
+  .panel-container.dark #mission-toggle-row:hover { background: #2d1f40; }
+  .panel-container.dark .mission-toggle-label { color: #a78bfa; }
+  .panel-container.dark .mission-chevron { color: #a78bfa; }
+  .panel-container.dark #mission-active-row {
+    background: linear-gradient(135deg, #2e1065 0%, #1e1527 100%);
+    border-color: #4c1d95;
+  }
+  .panel-container.dark .mission-active-text { color: #c4b5fd; }
+  .panel-container.dark .mission-edit-btn,
+  .panel-container.dark .mission-clear-icon-btn { color: #a78bfa; }
+  .panel-container.dark .mission-textarea {
+    background: #12111c;
+    border-color: #4c1d95;
+    color: #e5e7eb;
+  }
+  .panel-container.dark .mission-textarea::placeholder { color: #7c3aed; }
+  .panel-container.dark .mission-cancel-btn { border-color: #4c1d95; color: #a78bfa; }
+  .panel-container.dark .mission-cancel-btn:hover { background: #2e1065; }
+  .panel-container.dark #agent-control-section { border-top-color: #374151; }
+  .panel-container.dark .agent-control-label { color: #e5e7eb; }
+  .panel-container.dark #agent-status-bar { color: #9ca3af; }
+  .panel-container.dark #agent-log { color: #9ca3af; }
+  .panel-container.dark .agent-log-entry { border-bottom-color: #374151; }
+  .panel-container.dark .agent-log-step { color: #6b7280; }
+  .panel-container.dark #agent-plan {
+    background: #1e1527;
+    border-top-color: #4c1d95;
+    color: #c4b5fd;
+  }
+  .panel-container.dark .agent-plan-header { color: #a78bfa; }
+  .panel-container.dark .autofill-error-badge { background: #450a0a; border-color: #b91c1c; color: #fca5a5; }
 `;
 
 const PANEL_ID = "flow-agent-panel-host";
@@ -532,6 +607,7 @@ export function initAgentPanel(
       <div class="header">
         <span class="header-title">Flow Agent</span>
         <span class="auto-badge" id="auto-badge">Auto Executed</span>
+        <button id="theme-btn" class="theme-btn" title="Toggle dark mode">🌙</button>
       </div>
       <div class="confidence-section">
         <div class="confidence-text">
@@ -599,6 +675,30 @@ export function initAgentPanel(
       </div>
     `;
   shadowRoot.appendChild(container);
+
+  // ---- Theme toggle (synced across all tabs via chrome.storage.local) ----
+  const THEME_KEY = "flowAgent_darkTheme";
+  const themeBtn = shadowRoot.getElementById("theme-btn") as HTMLButtonElement;
+  const applyTheme = (dark: boolean) => {
+    container.classList.toggle("dark", dark);
+    themeBtn.textContent = dark ? "☀️" : "🌙";
+    themeBtn.title = dark ? "Switch to light mode" : "Switch to dark mode";
+  };
+  // Restore saved preference from chrome.storage.local (shared across all tabs)
+  chrome.storage.local.get(THEME_KEY, (data) => {
+    applyTheme(data[THEME_KEY] === true);
+  });
+  // Write to chrome.storage.local — the onChanged listener below will update all tabs
+  themeBtn.addEventListener("click", () => {
+    const isDark = !container.classList.contains("dark");
+    chrome.storage.local.set({ [THEME_KEY]: isDark });
+  });
+  // Sync theme whenever any tab changes it
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === "local" && THEME_KEY in changes) {
+      applyTheme(changes[THEME_KEY].newValue === true);
+    }
+  });
 
   // ---- Mission Prompt wiring ----
   const missionToggleRow = shadowRoot.getElementById("mission-toggle-row")!;
