@@ -50,6 +50,72 @@ export interface AIProvider {
     fields: FormFieldInfo[],
     pageContext?: string,
   ): Promise<AIFormData>;
+
+  /**
+   * Agent tool-calling interface.
+   * Instead of label-matching predictions, the AI picks a typed tool with explicit
+   * parameters (navigate, click, type, scroll, done). This eliminates the fragile
+   * fuzzy label-to-selector matching used by predictNextAction.
+   *
+   * @param context The compact page context including rendered elements.
+   * @returns A structured AgentToolCall describing exactly what the agent should do.
+   */
+  callAgentTool?(context: CompactContext): Promise<AgentToolCall>;
+}
+
+// ─── Agent Tool-Call Types ────────────────────────────────────────────────────
+
+/**
+ * The set of tools the AI agent can invoke.
+ *
+ * - navigate  Go directly to a URL (plan step 1 or whenever a page change is needed).
+ * - click     Click an element identified by its visible label or aria-label.
+ * - type      Focus an input/textarea by label and type text into it.
+ * - scroll    Scroll the viewport up or down to reveal more content.
+ * - done      Signal that the mission is complete (success or unrecoverable failure).
+ */
+export type AgentToolName = "navigate" | "click" | "type" | "scroll" | "done";
+
+/**
+ * Parameters for each tool.  Only the relevant keys need to be set.
+ */
+export interface AgentToolParams {
+  /** navigate: the full URL to visit. */
+  url?: string;
+  /** click / type: the visible text label, aria-label, or placeholder of the target element. */
+  label?: string;
+  /** type: the exact text to type. */
+  text?: string;
+  /** scroll: "up" or "down". */
+  direction?: "up" | "down";
+  /** done: short human-readable reason (success message or failure explanation). */
+  reason?: string;
+}
+
+/**
+ * A single structured action the AI agent wants to perform.
+ * Returned by AIProvider.callAgentTool().
+ */
+export interface AgentToolCall {
+  /** Which tool to invoke. */
+  tool: AgentToolName;
+  /** Parameters for the tool. */
+  params: AgentToolParams;
+  /** One-line reasoning for this tool choice (for logging/debugging). */
+  reasoning: string;
+  /** Confidence in this tool call, 0.0–1.0. */
+  confidenceEstimate: number;
+}
+
+/**
+ * A brief descriptor for a single interactive element on the page.
+ * Included in the agent tool prompt so the AI knows what is clickable/typeable.
+ */
+export interface AgentPageElement {
+  /** The primary human-readable label (textContent, aria-label, placeholder, etc.). */
+  label: string;
+  /** Element type category. */
+  type: "button" | "link" | "input" | "select" | "textarea" | "other";
 }
 
 /**
@@ -95,6 +161,31 @@ export interface CompactContext {
    * Set via the Mission Prompt panel in the extension.
    */
   mission?: string;
+  /**
+   * Completed steps so far in this agent session (for context-aware predictions).
+   * Each entry is a lightweight summary — action label + page URL.
+   */
+  stepHistory?: Array<{ action: string; pageUrl: string }>;
+  /**
+   * The full step-by-step plan generated at the start of the agent session.
+   * Included so the AI can stay on track with the original intent.
+   */
+  plan?: string;
+  /**
+   * The 1-based index of the plan step the agent should execute next.
+   * Derived from completed step count so the AI knows exactly where it is.
+   */
+  currentPlanStep?: number;
+  /**
+   * Rich element list for the agent tool-calling prompt.
+   * Each entry includes a label and type (button, link, input, etc.).
+   * Populated by content.ts when calling callAgentTool.
+   */
+  pageElements?: AgentPageElement[];
+  /**
+   * The current page URL, included for the agent tool prompt.
+   */
+  currentUrl?: string;
 }
 
 /**
@@ -114,4 +205,9 @@ export interface AIPrediction {
    * A score from 0.0 to 1.0 indicating the AI's confidence in its prediction.
    */
   confidenceEstimate: number;
+  /**
+   * For TYPE actions only — the exact text the agent should type into the
+   * target input/textarea field (e.g. 'iphone 17 pro'). Omitted for click actions.
+   */
+  inputText?: string;
 }

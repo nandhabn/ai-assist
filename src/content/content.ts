@@ -1,23 +1,14 @@
-import { generateCSSSelector, generateXPath } from "@/utils/selectorGenerator";
-import { extractElementMetadata } from "@/utils/elementAnalyzer";
+import { generateCSSSelector } from "@/utils/selectorGenerator";
 import {
   getCurrentRoute,
-  getCurrentURL,
   sanitizeURL,
 } from "@/utils/navigationDetector";
 import {
-  saveEvent,
-  getOrCreateSessionId,
-  isRecording,
-  setRecordingStatus,
-  saveLastUserAction,
   isAgentEnabled,
   setAgentEnabled,
 } from "@/utils/storage";
-import { ACTION_TYPES } from "@/types/index";
 import {
   generatePredictions,
-  maybeUseAI,
   PageContext,
   ActionCandidate,
   PredictionResult,
@@ -26,7 +17,6 @@ import {
 import { inferPageIntent } from "@/utils/contextBuilder";
 import {
   initAgentPanel,
-  renderAgentPanel,
   toggleAgentPanelVisibility,
   setAIThinking,
   showFormDetectedBanner,
@@ -43,7 +33,7 @@ import { createAIProvider, createNovaProvider } from "@/utils/aiProviderFactory"
 import { buildQueuedProvider, QueuedAIProvider } from "@/utils/aiQueue";
 import { getGeminiCallStats, resetGeminiCallStats } from "@/utils/geminiProvider";
 import { AI_CONFIG } from "@/config/aiConfig";
-import { AIProvider, FormFieldInfo } from "@/types/ai";
+import { AIProvider, FormFieldInfo, AgentToolCall, AgentPageElement } from "@/types/ai";
 import {
   AgentExecutor,
   AgentStatus,
@@ -55,28 +45,11 @@ import { createCompactContext } from "@/utils/predictionEngine";
 
 // --- Global State ---
 
-let sessionId: string | null = null;
-let isRecordingActive = false;
-let isAgentGloballyEnabled = false; // Default state, will be updated from storage
+let isAgentGloballyEnabled = false;
 let isAgentInitialized = false;
-let hasUserInteracted = false; // Don't fire AI on page load — wait for first real interaction
 
-let lastRecordedEvent: (any & { boundingBox?: DOMRect }) | null = null;
-let updateTimeout: number | undefined;
 let activeFormForAutofill: HTMLFormElement | null = null;
-let activeFormFields:
-  | {
-      name: string;
-      id: string;
-      type: string;
-      placeholder: string;
-      labelText: string;
-      ariaLabel: string;
-    }[]
-  | null = null;
-let lastHoveredElement: Element | null = null;
-let isUpdating = false;
-let lastPrediction: PredictionResult | null = null;
+let activeFormFields: FormFieldInfo[] | null = null;
 
 let aiProvider: AIProvider | null | undefined = undefined;
 
@@ -86,6 +59,9 @@ let currentMission = "";
 // --- Agent Executor ---
 let agentExecutor: AgentExecutor | null = null;
 let isAgentExecutorActive = false;
+
+// --- Navigation / per-page state ---
+let currentPageUrl = window.location.href;
 
 // --- AI Call Logger with timestamp ---
 function aiLog(msg: string) {
@@ -143,20 +119,16 @@ let cachedAutofillData: Record<string, string> | null = null;
 let cachedAutofillFieldsKey: string | null = null;
 let isAutofillGenerating = false;
 
-const INTERACTIVE_ELEMENTS = "input, button, a, textarea, select";
-
 // --- Initialization ---
 
 async function init() {
   // Only run in the top-level frame, not inside iframes
   if (window !== window.top) return;
 
-  // Prevent duplicate init on script re-injection — set flag SYNCHRONOUSLY before any await
+  // Prevent duplicate init on script re-injection
   if ((window as any).__flowRecorderListenersAttached) return;
   (window as any).__flowRecorderListenersAttached = true;
 
-  isRecordingActive = await isRecording();
-  sessionId = await getOrCreateSessionId();
   isAgentGloballyEnabled = await isAgentEnabled();
 
   // Load mission from background for this tab
@@ -169,42 +141,33 @@ async function init() {
 
   chrome.runtime.onMessage.addListener(handleMessage);
 
-  document.addEventListener("click", captureInteraction, true);
-  document.addEventListener("input", captureInteraction, true);
-  document.addEventListener("focusin", captureInteraction, true);
-  document.addEventListener("submit", captureInteraction, true);
+  // Listen for focusin to track form activity for autofill
+  document.addEventListener("focusin", captureFormFocus, true);
+
+  // Patch history methods so SPA navigation is detected
+  patchHistoryForNavigation();
 
   if (isAgentGloballyEnabled) {
     initializeAgent();
-    // Check if agent was actively running (for cross-navigation resumption)
+    // Resume agent across navigation if it was running
     chrome.runtime
       .sendMessage({ action: "GET_AGENT_RUNNING" })
       .then((resp: { running?: boolean } | undefined) => {
         if (resp?.running && currentMission) {
           console.log("[Flow Agent] Resuming agent after navigation...");
-          setTimeout(() => handleAgentStart(), 2000); // Give page time to load
+          setTimeout(() => handleAgentStart(), 2000);
         }
       })
       .catch(() => {});
   }
 
-  if (isRecordingActive) {
-    attachRecordingListeners();
-  }
+  console.log("[Flow Agent] Initialized.");
 
-  console.log("[FlowRecorder] Content script initialized.");
-
-  // Expose a debug namespace on window for DevTools inspection
   (window as any).__flowAgent = {
-    /** Gemini API call counts for this page session: { total, success, error } */
     geminiStats: () => getGeminiCallStats(),
-    /** Reset Gemini call counters */
     resetGeminiStats: () => { resetGeminiCallStats(); console.log("[FlowAgent] Gemini stats reset."); },
-    /** Current rate-limiter state */
     rlState: () => getRLState(),
-    /** Whether the agent is currently active */
     agentActive: () => isAgentExecutorActive,
-    /** Current agent session details */
     agentSession: () => agentExecutor?.getSession() ?? null,
   };
   console.log("[FlowAgent] Debug helpers available via window.__flowAgent");
@@ -322,10 +285,12 @@ async function generateAutofillData(
 
           if (!value) continue;
 
-          // Add the value under all available identifiers for robust matching
-          for (const id of identifiers) {
-            if (id) expandedData[id] = value;
-          }
+          // Store under a single canonical key so the form filler doesn't
+          // try to fill the same logical field multiple times.
+          // Priority: id → name → labelText → ariaLabel → placeholder
+          const canonicalKey =
+            field.id || field.name || field.labelText || field.ariaLabel || field.placeholder;
+          if (canonicalKey) expandedData[canonicalKey] = value;
         }
 
         // Cache the result
@@ -450,17 +415,19 @@ function initializeAgent() {
   if (isAgentInitialized) return;
 
   console.log("[Flow Agent] Initializing...");
-  initAgentPanel(onExecutePrediction, scheduleUpdate, generateAutofillData, {
-    onStart: handleAgentStart,
-    onStop: handleAgentStop,
-    onPause: handleAgentPause,
-    onResume: handleAgentResume,
-  });
+  initAgentPanel(
+    () => { /* manual prediction execution not used in tool-call mode */ },
+    () => { /* no prediction refresh — agent drives its own loop */ },
+    generateAutofillData,
+    {
+      onStart: handleAgentStart,
+      onStop: handleAgentStop,
+      onPause: handleAgentPause,
+      onResume: handleAgentResume,
+    },
+  );
   toggleAgentPanelVisibility(true);
-  document.addEventListener("mousemove", handleMouseMove, true);
-  updateAgentPredictions();
   checkAndShowFormBanner();
-  // Re-check after a delay for SPAs that render forms asynchronously
   setTimeout(checkAndShowFormBanner, 1500);
   setTimeout(checkAndShowFormBanner, 4000);
 
@@ -521,12 +488,8 @@ function checkAndShowFormBanner() {
 
 function decommissionAgent() {
   if (!isAgentInitialized) return;
-
   console.log("[Flow Agent] Decommissioning...");
-  document.removeEventListener("mousemove", handleMouseMove, true);
   toggleAgentPanelVisibility(false);
-  // We don't destroy the panel, just hide it, so it can be re-enabled.
-
   isAgentInitialized = false;
 }
 
@@ -573,157 +536,477 @@ function getAIProvider(): QueuedAIProvider | null {
   return buildQueuedProvider(chain);
 }
 
-function throttle<T extends (...args: any[]) => void>(
-  func: T,
-  limit: number,
-): T {
-  let inThrottle: boolean;
-  return function (this: any, ...args: any[]): void {
-    if (!inThrottle) {
-      func.apply(this, args);
-      inThrottle = true;
-      setTimeout(() => (inThrottle = false), limit);
-    }
-  } as T;
-}
 
-async function updateAgentPredictions() {
-  if (isUpdating || !isAgentGloballyEnabled || isAgentExecutorActive) return;
 
-  if (aiProvider === undefined) {
-    aiProvider = getAIProvider();
+/**
+ * Called whenever the page URL changes (SPA navigation or hard nav).
+ * Resets per-page state and re-checks for forms on the new page.
+ */
+function onPageNavigate(newUrl: string): void {
+  if (newUrl === currentPageUrl) return;
+
+  console.log(`[FlowAgent] Navigation detected: ${currentPageUrl} → ${newUrl}`);
+
+  activeFormForAutofill = null;
+  activeFormFields = null;
+  currentPageUrl = newUrl;
+
+  if (isAgentInitialized) {
+    setTimeout(checkAndShowFormBanner, 500);
   }
-
-  isUpdating = true;
-  setAIThinking(true);
-
-  try {
-    const context = buildPageContext();
-    const deterministic = generatePredictions(context);
-
-    let finalResult = deterministic;
-
-    // Only call AI if:
-    // 1. Provider is available
-    // 2. Confidence is very low (< 0.2)
-    // 3. User has interacted with the page (not a cold page-load)
-    // 4. Unified rate limiter allows it
-    if (
-      aiProvider &&
-      deterministic.confidence < 0.2 &&
-      hasUserInteracted &&
-      canMakeAICall()
-    ) {
-      aiLog(
-        `Prediction AI call triggered | Confidence: ${deterministic.confidence.toFixed(3)} | Provider: ${AI_CONFIG.chatgpt ? "ChatGPT API" : AI_CONFIG.novaConfig ? "Nova" : AI_CONFIG.gemini ? "Gemini" : AI_CONFIG.chatgptTab ? "ChatGPT Tab" : "None"}`,
-      );
-      recordAICall();
-      finalResult = await maybeUseAI(context, deterministic, aiProvider);
-      aiLog(
-        `Prediction AI call completed | New confidence: ${finalResult.confidence.toFixed(3)}`,
-      );
-    } else if (
-      aiProvider &&
-      deterministic.confidence < 0.2 &&
-      !hasUserInteracted
-    ) {
-      aiLog("Prediction AI call SKIPPED (waiting for user interaction)");
-    } else if (
-      aiProvider &&
-      deterministic.confidence < 0.2 &&
-      !canMakeAICall()
-    ) {
-      const s = getRLState();
-      aiLog(
-        `Prediction AI call SKIPPED (rate limited) | Confidence: ${deterministic.confidence.toFixed(3)} | Calls this window: ${s.count}/${AI_MAX_CALLS_PER_WINDOW} | Cooldown remaining: ${Math.max(0, Math.round((AI_MIN_INTERVAL - (Date.now() - s.lastCall)) / 1000))}s`,
-      );
-    }
-
-    if (lastPrediction) {
-      const prevTop = lastPrediction.topThree[0]?.action.selector;
-      const newTop = finalResult.topThree[0]?.action.selector;
-      if (
-        prevTop === newTop &&
-        Math.abs(finalResult.confidence - lastPrediction.confidence) < 0.05
-      ) {
-        return; // Prevent flicker
-      }
-    }
-
-    renderAgentPanel(
-      finalResult,
-      !!activeFormForAutofill,
-      activeFormFields || undefined,
-    );
-    lastPrediction = finalResult;
-  } finally {
-    isUpdating = false;
-    setAIThinking(false);
-  }
-}
-
-function scheduleUpdate() {
-  if (updateTimeout) clearTimeout(updateTimeout);
-  updateTimeout = window.setTimeout(updateAgentPredictions, 600); // 600ms debounce
-}
-
-const throttledScheduleUpdate = throttle(scheduleUpdate, 1000); // 1s throttle
-
-// Throttle mousemove handler itself to reduce frequency
-const throttledMouseMove = throttle((event: MouseEvent) => {
-  hasUserInteracted = true;
-  const target = event.target as HTMLElement;
-  const interactiveElement = target.closest(INTERACTIVE_ELEMENTS);
-
-  if (!interactiveElement || interactiveElement === lastHoveredElement) {
-    return;
-  }
-
-  lastHoveredElement = interactiveElement;
-  throttledScheduleUpdate();
-}, 500); // Throttle mousemove to max once per 500ms
-
-function handleMouseMove(event: MouseEvent) {
-  throttledMouseMove(event);
-}
-
-function onExecutePrediction(prediction: RankedPrediction) {
-  const element = document.querySelector(
-    prediction.action.selector,
-  ) as HTMLElement;
-  if (element) element.click();
-  else
-    console.error(
-      "Could not find element for selector:",
-      prediction.action.selector,
-    );
 }
 
 /**
- * Execute a prediction and return whether the element was found and clicked.
- * Used by the agent executor. Async so the loop can properly await before settling.
+ * Patches history.pushState / history.replaceState and listens to popstate
+ * so onPageNavigate() fires for every SPA route change.
+ * Safe to call multiple times — skips if already patched.
  */
+function patchHistoryForNavigation(): void {
+  if ((window as any).__flowAgentNavPatched) return;
+  (window as any).__flowAgentNavPatched = true;
+
+  const originalPushState = history.pushState.bind(history);
+  const originalReplaceState = history.replaceState.bind(history);
+
+  history.pushState = function (...args: Parameters<typeof history.pushState>) {
+    originalPushState(...args);
+    onPageNavigate(window.location.href);
+  };
+
+  history.replaceState = function (...args: Parameters<typeof history.replaceState>) {
+    originalReplaceState(...args);
+    onPageNavigate(window.location.href);
+  };
+
+  window.addEventListener("popstate", () => {
+    onPageNavigate(window.location.href);
+  });
+
+  console.log("[FlowAgent] Navigation listener attached.");
+}
+
+/**
+ * Finds an interactive element on the page whose visible label matches the given string.
+ * Searches buttons, links, inputs, selects, textareas — trying:
+ *   1. Exact aria-label / title / placeholder match
+ *   2. Exact textContent match
+ *   3. Case-insensitive substring match
+ * Returns the best match or null.
+ */
+function findElementByLabel(label: string): HTMLElement | null {
+  const needle = label.toLowerCase().trim();
+  const selectors = [
+    'button', 'a', 'input:not([type=hidden])', 'select', 'textarea',
+    '[role="button"]', '[role="link"]', '[role="menuitem"]', '[role="tab"]',
+    '[role="option"]', '[tabindex]',
+  ].join(",");
+
+  const all = Array.from(document.querySelectorAll<HTMLElement>(selectors))
+    .filter((el) => {
+      const style = window.getComputedStyle(el);
+      return style.display !== "none" && style.visibility !== "hidden" && (el.offsetWidth > 0 || el.offsetHeight > 0);
+    });
+
+  const text = (el: HTMLElement) =>
+    (el.getAttribute("aria-label") ?? el.getAttribute("title") ??
+     el.getAttribute("placeholder") ?? el.textContent ?? "").toLowerCase().trim();
+
+  return (
+    all.find((el) => text(el) === needle) ??
+    all.find((el) => text(el).startsWith(needle)) ??
+    all.find((el) => text(el).includes(needle)) ??
+    null
+  );
+}
+
+/**
+ * Executes an AgentToolCall returned by the AI's tool-calling mode.
+ * Returns true if the action succeeded, false if it failed or the tool is "done".
+ */
+async function executeAgentToolCall(toolCall: AgentToolCall): Promise<boolean> {
+  const { tool, params } = toolCall;
+  console.log(`[Agent Tool] ${tool}`, params);
+
+  switch (tool) {
+    case "navigate": {
+      if (!params.url) {
+        console.error("[Agent Tool] navigate: missing url");
+        return false;
+      }
+      window.location.href = params.url;
+      return true;
+    }
+
+    case "click": {
+      const label = params.label ?? "";
+      const el = findElementByLabel(label);
+      if (el) {
+        el.scrollIntoView({ behavior: "instant", block: "center" });
+        await new Promise<void>((r) => setTimeout(r, 80));
+        el.click();
+        return true;
+      }
+      // Fallback: navigate via <a> href if element not found via DOM query
+      const href = findNavHrefByLabel(label);
+      if (href) {
+        console.log(`[Agent Tool] click fallback via href: ${href}`);
+        window.location.href = href;
+        return true;
+      }
+      console.warn(`[Agent Tool] click: no element found for label "${label}"`);
+      return false;
+    }
+
+    case "type": {
+      const label = params.label ?? "";
+      const text = params.text ?? "";
+      const el = findElementByLabel(label) as HTMLInputElement | HTMLTextAreaElement | null;
+      if (!el) {
+        console.warn(`[Agent Tool] type: no element found for label "${label}"`);
+        return false;
+      }
+      el.scrollIntoView({ behavior: "instant", block: "center" });
+      el.focus();
+      await new Promise<void>((r) => setTimeout(r, 150));
+
+      const tag = el.tagName.toLowerCase();
+      const proto = tag === "textarea"
+        ? window.HTMLTextAreaElement.prototype
+        : window.HTMLInputElement.prototype;
+      const nativeSetter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
+      if (nativeSetter) nativeSetter.call(el, text);
+      else el.value = text;
+
+      el.dispatchEvent(new InputEvent("input", { bubbles: true, cancelable: true, data: text }));
+      el.dispatchEvent(new Event("change", { bubbles: true }));
+      await new Promise<void>((r) => setTimeout(r, 300));
+
+      const enterOpts: KeyboardEventInit = { key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true, cancelable: true };
+      el.dispatchEvent(new KeyboardEvent("keydown", enterOpts));
+      el.dispatchEvent(new KeyboardEvent("keypress", enterOpts));
+      el.dispatchEvent(new KeyboardEvent("keyup", enterOpts));
+      return true;
+    }
+
+    case "scroll": {
+      const amount = params.direction === "up" ? -600 : 600;
+      window.scrollBy({ top: amount, behavior: "smooth" });
+      return true;
+    }
+
+    case "done": {
+      // "done" is handled by predictForAgentWithTools returning empty topThree.
+      // If it somehow reaches execute, log it and return false so the loop exits.
+      console.log(`[Agent Tool] done — ${params.reason ?? "mission complete"}`);
+      return false;
+    }
+
+    default:
+      console.error(`[Agent Tool] unknown tool: ${tool}`);
+      return false;
+  }
+}
+
+/**
+ * Execute a prediction and return whether the element was found and actioned.
+ * Handles both CLICK and TYPE actions:
+ *   - If prediction.inputText is set and the target is an input/textarea, types the
+ *     text using native value setters (works with React/Vue controlled inputs) and
+ *     dispatches Enter to submit (e.g. search bars).
+ *   - Otherwise falls back to element.click().
+ */
+/**
+ * Extracts a navigation URL from an AI prediction label or a plan step text.
+ * Returns null if no URL is found.
+ *
+ * Handles patterns like:
+ *   "Navigate to https://www.apple.com"
+ *   "Go to https://www.apple.com"
+ *   "Open https://www.apple.com"
+ *   Bare "https://www.apple.com"
+ */
+function extractNavigationUrl(
+  label: string,
+  plan?: string,
+  currentPlanStep?: number,
+): string | null {
+  const urlRe = /https?:\/\/[^\s"'>)]+/;
+
+  // 1. Check the AI label directly
+  const labelMatch = label.match(urlRe);
+  if (labelMatch) return labelMatch[0];
+
+  const lcLabel = label.toLowerCase();
+  const isNavIntent =
+    lcLabel.startsWith("navigate") ||
+    lcLabel.startsWith("go to") ||
+    lcLabel.startsWith("open") ||
+    lcLabel.startsWith("visit") ||
+    lcLabel.includes("navigate to");
+
+  // 2. If the label signals navigation, try to read the URL from the current plan step
+  if (isNavIntent && plan && currentPlanStep != null) {
+    const lines = plan.split("\n");
+    const stepPatterns = [
+      new RegExp(`^\\s*${currentPlanStep}[.):]?\\s`, "i"),
+      new RegExp(`step\\s*${currentPlanStep}[.):]?\\s`, "i"),
+    ];
+    for (const line of lines) {
+      if (stepPatterns.some((re) => re.test(line))) {
+        const m = line.match(urlRe);
+        if (m) return m[0];
+      }
+    }
+    // Fallback: first plan line containing a nav verb + URL
+    for (const line of lines) {
+      if (/navigate|go to|open|visit/i.test(line)) {
+        const m = line.match(urlRe);
+        if (m) return m[0];
+      }
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Given a label string, finds the best matching <a> element on the page and returns
+ * its resolved href, or null if nothing useful is found.
+ * Matching priority: exact text → starts-with → includes (all case-insensitive).
+ */
+function findNavHrefByLabel(label: string): string | null {
+  const needle = label.toLowerCase().trim();
+  const anchors = Array.from(document.querySelectorAll<HTMLAnchorElement>("a[href]"));
+  // Filter out javascript: and # anchors that don't actually navigate
+  const valid = anchors.filter((a) => {
+    const h = a.getAttribute("href") ?? "";
+    return h && !h.startsWith("#") && !h.startsWith("javascript:");
+  });
+
+  // Rank candidates — exact match wins, then startsWith, then includes
+  const exact   = valid.find((a) => (a.textContent ?? "").toLowerCase().trim() === needle);
+  if (exact) return exact.href;
+  const starts  = valid.find((a) => (a.textContent ?? "").toLowerCase().trim().startsWith(needle));
+  if (starts) return starts.href;
+  const includes = valid.find((a) => (a.textContent ?? "").toLowerCase().includes(needle));
+  if (includes) return includes.href;
+
+  // Also check aria-label and title attributes
+  const attrMatch = valid.find((a) =>
+    [(a.getAttribute("aria-label") ?? "").toLowerCase(),
+     (a.getAttribute("title") ?? "").toLowerCase()].some(
+      (v) => v === needle || v.includes(needle)
+    )
+  );
+  return attrMatch ? attrMatch.href : null;
+}
+
 async function executeForAgent(prediction: RankedPrediction): Promise<boolean> {
+  // ── Agent tool-call sentinel ──────────────────────────────────────────────
+  // predictForAgentWithTools encodes the full AgentToolCall as the selector.
+  if (prediction.action.selector.startsWith("__tool__:")) {
+    const toolCall: AgentToolCall = JSON.parse(
+      prediction.action.selector.slice("__tool__:".length),
+    );
+    return executeAgentToolCall(toolCall);
+  }
+
   const element = document.querySelector(
     prediction.action.selector,
   ) as HTMLElement | null;
   if (!element) {
-    console.error(
+    console.warn(
       "[Agent] Could not find element for selector:",
       prediction.action.selector,
+      "— attempting URL navigation fallback",
     );
+
+    // Try to navigate via the browser API if a matching anchor href can be found
+    const navHref = findNavHrefByLabel(prediction.action.label);
+    if (navHref) {
+      console.log(`[Agent] Navigating via window.location to: ${navHref}`);
+      window.location.href = navHref;
+      return true;
+    }
+
+    console.error("[Agent] Navigation fallback failed — no matching link found for label:", prediction.action.label);
     return false;
   }
 
   // Scroll the element into view synchronously
   element.scrollIntoView({ behavior: "instant", block: "center" });
 
-  // Fire the click immediately so the settle observer can detect subsequent mutations
+  const tag = element.tagName.toLowerCase();
+  const isTypeable = tag === "input" || tag === "textarea";
+  const inputText = prediction.inputText;
+
+  if (isTypeable && inputText) {
+    // ── TYPE action ─────────────────────────────────────────────────────────
+    element.focus();
+    await new Promise<void>((r) => setTimeout(r, 150));
+
+    // Use the native property setter so React/Vue/Angular controlled inputs
+    // detect the change and update their internal state.
+    const proto =
+      tag === "textarea"
+        ? window.HTMLTextAreaElement.prototype
+        : window.HTMLInputElement.prototype;
+    const nativeSetter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
+    if (nativeSetter) {
+      nativeSetter.call(element, inputText);
+    } else {
+      (element as HTMLInputElement).value = inputText;
+    }
+
+    // Dispatch events so frameworks (React synthetic events, Angular, etc.) pick up the change
+    element.dispatchEvent(new InputEvent("input", { bubbles: true, cancelable: true, data: inputText }));
+    element.dispatchEvent(new Event("change", { bubbles: true }));
+    await new Promise<void>((r) => setTimeout(r, 300));
+
+    // Simulate pressing Enter — standard way to submit search bars
+    const enterOpts: KeyboardEventInit = { key: "Enter", code: "Enter", keyCode: 13, which: 13, bubbles: true, cancelable: true };
+    element.dispatchEvent(new KeyboardEvent("keydown", enterOpts));
+    element.dispatchEvent(new KeyboardEvent("keypress", enterOpts));
+    element.dispatchEvent(new KeyboardEvent("keyup", enterOpts));
+
+    console.log(`[Agent] Typed "${inputText}" into ${prediction.action.selector} and pressed Enter`);
+    await new Promise<void>((r) => setTimeout(r, 100));
+    return true;
+  }
+
+  // ── CLICK action ─────────────────────────────────────────────────────────
   element.click();
 
   // Brief gap so any synchronous JS handlers (e.g. SPA routers) can run
   await new Promise<void>((r) => setTimeout(r, 100));
   return true;
+}
+
+/**
+ * Gathers all interactive elements currently visible on the page and returns
+ * them as a flat AgentPageElement list for the tool-call prompt.
+ * Capped at 40 elements to keep the prompt within token budget.
+ */
+function buildPageElements(): AgentPageElement[] {
+  const results: AgentPageElement[] = [];
+  const seen = new Set<string>();
+
+  const add = (label: string, type: AgentPageElement["type"]) => {
+    const key = `${type}:${label}`;
+    if (!label || label.length < 2 || seen.has(key)) return;
+    seen.add(key);
+    results.push({ label, type });
+  };
+
+  // Buttons
+  document.querySelectorAll<HTMLElement>(
+    'button, [role="button"], [role="menuitem"], [role="tab"], input[type="submit"], input[type="button"]',
+  ).forEach((el) => {
+    const style = window.getComputedStyle(el);
+    if (style.display === "none" || style.visibility === "hidden") return;
+    const label = (el.getAttribute("aria-label") ?? el.textContent ?? "").trim().slice(0, 80);
+    add(label, "button");
+  });
+
+  // Links
+  document.querySelectorAll<HTMLAnchorElement>("a[href]").forEach((el) => {
+    const style = window.getComputedStyle(el);
+    if (style.display === "none" || style.visibility === "hidden") return;
+    if (el.offsetWidth === 0 && el.offsetHeight === 0) return;
+    const label = (el.getAttribute("aria-label") ?? el.textContent ?? "").trim().slice(0, 80);
+    add(label, "link");
+  });
+
+  // Inputs
+  document.querySelectorAll<HTMLInputElement>(
+    'input:not([type=hidden]):not([type=submit]):not([type=button])',
+  ).forEach((el) => {
+    const label = (
+      el.getAttribute("aria-label") ??
+      el.getAttribute("placeholder") ??
+      el.getAttribute("name") ?? ""
+    ).trim().slice(0, 80);
+    add(label || `input[${el.type}]`, "input");
+  });
+
+  // Textareas
+  document.querySelectorAll<HTMLTextAreaElement>("textarea").forEach((el) => {
+    const label = (el.getAttribute("aria-label") ?? el.getAttribute("placeholder") ?? "textarea").trim().slice(0, 80);
+    add(label, "textarea");
+  });
+
+  // Selects
+  document.querySelectorAll<HTMLSelectElement>("select").forEach((el) => {
+    const labelEl = el.id ? document.querySelector<HTMLLabelElement>(`label[for="${el.id}"]`) : null;
+    const label = (el.getAttribute("aria-label") ?? labelEl?.textContent ?? el.name ?? "select").trim().slice(0, 80);
+    add(label, "select");
+  });
+
+  return results.slice(0, 40);
+}
+
+/**
+ * Tool-call based prediction for agent mode.
+ * Calls AIProvider.callAgentTool() which returns a structured AgentToolCall
+ * (navigate / click / type / scroll / done) instead of a fuzzy label prediction.
+ * The tool call is encoded as a __tool__: selector so no DOM label-matching is needed.
+ */
+async function predictForAgentWithTools(provider: AIProvider): Promise<PredictionResult> {
+  const context = buildPageContext();
+  const compactContext = createCompactContext(context);
+
+  // Attach step history, plan, current step, rich element list, and URL
+  if (agentExecutor) {
+    const session = agentExecutor.getSession();
+    compactContext.stepHistory = agentExecutor.getSteps().map((s) => ({
+      action: s.action,
+      pageUrl: s.pageUrl,
+    }));
+    if (session?.plan) {
+      compactContext.plan = session.plan;
+      const completedSteps = agentExecutor.getStepCount();
+      const estimatedSteps = session.estimatedSteps ?? 99;
+      compactContext.currentPlanStep = Math.min(completedSteps + 1, estimatedSteps);
+    }
+  }
+  compactContext.pageElements = buildPageElements();
+  compactContext.currentUrl = window.location.href;
+
+  let toolCall: AgentToolCall;
+  try {
+    toolCall = await provider.callAgentTool!(compactContext);
+  } catch (err) {
+    console.error("[Agent] callAgentTool failed:", err);
+    throw err;
+  }
+
+  // "done" tool → empty result so the loop exits cleanly
+  if (toolCall.tool === "done") {
+    console.log(`[Agent] Tool=done — ${toolCall.params.reason ?? "mission complete"}`);
+    return { topThree: [], confidence: 0 };
+  }
+
+  const neutralBreakdown = {
+    proximityScore: 0.5, intentScore: 0.5, formScore: 0.5,
+    roleScore: 0.5, directionScore: 0.5,
+  };
+  const score = Math.max(toolCall.confidenceEstimate ?? 0.5, 0.5);
+
+  return {
+    topThree: [{
+      action: {
+        label: `[${toolCall.tool}] ${JSON.stringify(toolCall.params)}`,
+        selector: `__tool__:${JSON.stringify(toolCall)}`,
+        role: "primary" as const,
+        boundingBox: new DOMRect(),
+        confidenceScore: score,
+      },
+      totalScore: score,
+      breakdown: neutralBreakdown,
+      inputText: toolCall.params.text,
+    }],
+    confidence: score,
+  };
 }
 
 /**
@@ -734,6 +1017,14 @@ async function executeForAgent(prediction: RankedPrediction): Promise<boolean> {
 async function predictForAgent(): Promise<PredictionResult> {
   if (aiProvider === undefined) {
     aiProvider = getAIProvider();
+  }
+
+  // ── Tool-calling path (preferred) ─────────────────────────────────────────
+  // If the provider implements callAgentTool(), use structured tool calls instead
+  // of the old label-prediction + fuzzy-match flow. This eliminates "Skip to main
+  // content" style hallucinations by giving the AI typed tools with explicit params.
+  if (aiProvider && typeof aiProvider.callAgentTool === "function") {
+    return predictForAgentWithTools(aiProvider);
   }
 
   const context = buildPageContext();
@@ -747,14 +1038,33 @@ async function predictForAgent(): Promise<PredictionResult> {
   // Build compact context (includes mission) for the AI provider
   const compactContext = createCompactContext(context);
 
+  // Attach step history, plan, and current plan step so the AI stays on track
+  if (agentExecutor) {
+    const session = agentExecutor.getSession();
+    compactContext.stepHistory = agentExecutor.getSteps().map((s) => ({
+      action: s.action,
+      pageUrl: s.pageUrl,
+    }));
+    if (session?.plan) {
+      compactContext.plan = session.plan;
+      // Next plan step = completed steps + 1 (capped at estimatedSteps)
+      const completedSteps = agentExecutor.getStepCount();
+      const estimatedSteps = session.estimatedSteps ?? 99;
+      compactContext.currentPlanStep = Math.min(completedSteps + 1, estimatedSteps);
+    }
+  }
+
   try {
     // Call AI — the provider uses the mission from compactContext in the prompt
     const aiResult = await aiProvider.predictNextAction(compactContext);
 
-    // Check for mission-complete signal (very low confidence from AI)
+    // Check for mission-complete signal — only an explicit MISSION_COMPLETE label
+    // (or a zero-confidence response with NO action label) counts as done.
+    // A confidence of 0 alone is NOT enough, since truncated JSON repairs also
+    // produce confidence=0 but still carry a valid predictedActionLabel.
     if (
-      aiResult.confidenceEstimate === 0 ||
-      aiResult.predictedActionLabel === "MISSION_COMPLETE"
+      aiResult.predictedActionLabel === "MISSION_COMPLETE" ||
+      (aiResult.confidenceEstimate === 0 && !aiResult.predictedActionLabel)
     ) {
       console.log("[Agent] AI indicates mission complete:", aiResult.reasoning);
       return { topThree: [], confidence: 0 };
@@ -772,6 +1082,7 @@ async function predictForAgent(): Promise<PredictionResult> {
       const boosted: RankedPrediction = {
         ...matched,
         totalScore: Math.max(matched.totalScore, aiResult.confidenceEstimate),
+        inputText: aiResult.inputText,
       };
       const rest = deterministic.topThree.filter((_, i) => i !== matchedIndex);
       return {
@@ -797,6 +1108,7 @@ async function predictForAgent(): Promise<PredictionResult> {
           fuzzyMatch.totalScore,
           aiResult.confidenceEstimate,
         ),
+        inputText: aiResult.inputText,
       };
       const rest = deterministic.topThree.filter((p) => p !== fuzzyMatch);
       return {
@@ -805,7 +1117,61 @@ async function predictForAgent(): Promise<PredictionResult> {
       };
     }
 
-    // AI chose something we can't map — use deterministic
+    // AI chose something we can't map in top-3 — try ALL visible actions
+    // (input fields rank lower and may not appear in the top-3 deterministic set)
+    const broadMatch = context.visibleActions.find(
+      (a) =>
+        a.label.toLowerCase() === aiResult.predictedActionLabel.toLowerCase() ||
+        a.label.toLowerCase().includes(aiResult.predictedActionLabel.toLowerCase()) ||
+        aiResult.predictedActionLabel.toLowerCase().includes(a.label.toLowerCase()),
+    );
+    if (broadMatch) {
+      const neutralBreakdown = { proximityScore: 0.5, intentScore: 0.5, formScore: 0.5, roleScore: 0.5, directionScore: 0.5 };
+      console.log("[Agent] AI prediction matched via broad search:", broadMatch.label);
+      return {
+        topThree: [{
+          action: broadMatch,
+          totalScore: aiResult.confidenceEstimate,
+          breakdown: neutralBreakdown,
+          inputText: aiResult.inputText,
+        }],
+        confidence: aiResult.confidenceEstimate,
+      };
+    }
+
+    // Still no match — check if the AI label or the current plan step encodes a URL.
+    // This handles "Navigate to https://www.apple.com" when the page has no DOM elements.
+    const navigateUrl = extractNavigationUrl(
+      aiResult.predictedActionLabel,
+      compactContext.plan,
+      compactContext.currentPlanStep,
+    );
+    if (navigateUrl) {
+      console.log("[Agent] No DOM match — synthesising navigation action to:", navigateUrl);
+      const neutralBreakdown = {
+        proximityScore: 0.5, intentScore: 0.5, formScore: 0.5,
+        roleScore: 0.5, directionScore: 0.5,
+      };
+      // Use at least 0.5 so the confidence gate in the loop never blocks a nav step
+      const navScore = Math.max(aiResult.confidenceEstimate, 0.5);
+      return {
+        topThree: [{
+          action: {
+            label: `Navigate to ${navigateUrl}`,
+            selector: `__navigate__:${navigateUrl}`,
+            role: "link" as const,
+            boundingBox: new DOMRect(),
+            confidenceScore: navScore,
+          },
+          totalScore: navScore,
+          breakdown: neutralBreakdown,
+          inputText: undefined,
+        }],
+        confidence: navScore,
+      };
+    }
+
+    // Still no match — fall back to deterministic
     console.warn(
       "[Agent] AI prediction didn't match any visible action, using deterministic",
     );
@@ -1035,6 +1401,12 @@ function getOrCreateAgentExecutor(): AgentExecutor {
       onSessionSave: (session: AgentSession) => { saveAgentSession(session); },
       onStatusChange: (status: AgentStatus, stepCount: number, message?: string) => {
         isAgentExecutorActive = status === "running" || status === "paused" || status === "planning";
+
+        // Hide the "Suggested Actions" flyout while the agent is active so it
+        // doesn't show stale predictions during autonomous execution.
+        const flyout = document.getElementById("flow-recorder-flyout");
+        if (flyout) flyout.style.display = isAgentExecutorActive ? "none" : "";
+
         updateAgentControlUI(status, stepCount, message);
         console.log(`[Agent] Status: ${status} | Steps: ${stepCount}${message ? ` | ${message}` : ""}`);
         // Show plan in panel when agent transitions out of planning into running
@@ -1054,6 +1426,10 @@ function getOrCreateAgentExecutor(): AgentExecutor {
         appendAgentLogEntry(step);
         flashAutoExecution();
       },
+    }, {
+      // The tool-calling path handles form input via explicit "type" tool calls.
+      // Disable automatic form detection/fill so the AI drives all interactions.
+      autoFillForms: false,
     });
   }
   return agentExecutor;
@@ -1084,15 +1460,13 @@ function handleAgentResume() {
 
 // --- Event Capture & Core Logic ---
 
-const captureInteraction = async (event: Event) => {
-  hasUserInteracted = true;
+async function captureFormFocus(event: Event) {
   const target = event.target as HTMLElement;
   if (!target || target.closest("[data-flow-recorder]")) return;
 
-  // Autofill Assist Logic
   if (event.type === "focusin") {
     const form = target.closest("form");
-    let newActiveForm: HTMLFormElement | null =
+    const newActiveForm: HTMLFormElement | null =
       form &&
       Array.from(form.querySelectorAll("input")).filter((el) => !el.value)
         .length >= 2
@@ -1101,17 +1475,13 @@ const captureInteraction = async (event: Event) => {
 
     if (newActiveForm !== activeFormForAutofill) {
       activeFormForAutofill = newActiveForm;
-      // Keep agentPanel in sync so the fill button always knows which form to target
       setAutofillTargetForm(newActiveForm);
-      // Invalidate autofill cache when form changes
       cachedAutofillData = null;
       cachedAutofillFieldsKey = null;
       if (newActiveForm) {
-        // Collect more comprehensive field metadata for better autofill matching
         const allElements = Array.from(
           newActiveForm.querySelectorAll("input, textarea, select"),
         );
-        // Track radio groups we've already processed
         const processedRadioGroups = new Set<string>();
 
         activeFormFields = allElements
@@ -1120,7 +1490,6 @@ const captureInteraction = async (event: Event) => {
             const type = input.type?.toLowerCase();
             if (type === "submit" || type === "button" || type === "hidden")
               return false;
-            // Radio buttons: only process the first one per group name
             if (type === "radio") {
               const groupName = input.name;
               if (!groupName || processedRadioGroups.has(groupName))
@@ -1128,9 +1497,7 @@ const captureInteraction = async (event: Event) => {
               processedRadioGroups.add(groupName);
               return true;
             }
-            // Checkboxes always have a value; don't filter them by !input.value
             if (type === "checkbox") return !input.checked;
-            // For text-like fields, skip if already filled
             return !input.value;
           })
           .map((el: Element) => {
@@ -1143,7 +1510,6 @@ const captureInteraction = async (event: Event) => {
               (input.tagName.toLowerCase() === "textarea"
                 ? "textarea"
                 : input.tagName.toLowerCase());
-            // Get label text if available
             let labelText = "";
             if (input.id) {
               const label = document.querySelector(`label[for="${input.id}"]`);
@@ -1154,10 +1520,8 @@ const captureInteraction = async (event: Event) => {
               if (parentLabel)
                 labelText = parentLabel.textContent?.trim() || "";
             }
-            // aria-label is often used when no <label> exists (e.g. React Hook Form)
             const ariaLabel = input.getAttribute("aria-label")?.trim() || "";
 
-            // Capture options for select elements and radio button groups
             let options: string[] | undefined;
             if (input.tagName.toLowerCase() === "select") {
               options = Array.from((input as HTMLSelectElement).options)
@@ -1165,16 +1529,14 @@ const captureInteraction = async (event: Event) => {
                 .map((opt) => opt.text.trim())
                 .slice(0, 20);
             } else if (type === "radio" && (input as HTMLInputElement).name) {
-              // Collect all radio options in the group
               const radios = Array.from(
-                newActiveForm!.querySelectorAll<HTMLInputElement>(
+                newActiveForm.querySelectorAll<HTMLInputElement>(
                   `input[type="radio"][name="${(input as HTMLInputElement).name}"]`,
                 ),
               );
               options = radios
                 .filter((r) => r.value && !r.disabled)
                 .map((r) => {
-                  // Try to get a human-readable label for each radio option
                   let radioLabel = "";
                   if (r.id) {
                     const lbl = document.querySelector(`label[for="${r.id}"]`);
@@ -1188,7 +1550,6 @@ const captureInteraction = async (event: Event) => {
                   return radioLabel || r.value;
                 })
                 .slice(0, 20);
-              // Also derive a group-level label from the fieldset legend or surrounding heading
               if (!labelText) {
                 const fieldset = input.closest("fieldset");
                 const legend = fieldset?.querySelector("legend");
@@ -1201,67 +1562,17 @@ const captureInteraction = async (event: Event) => {
               id: input.id || "",
               type,
               placeholder: (input as HTMLInputElement).placeholder || "",
-              labelText: labelText,
-              ariaLabel: ariaLabel,
+              labelText,
+              ariaLabel,
               options,
             };
           });
       } else {
         activeFormFields = null;
       }
-      if (isAgentGloballyEnabled) scheduleUpdate();
     }
   }
-
-  let interactiveElement: HTMLElement | null =
-    target.closest(INTERACTIVE_ELEMENTS);
-  if (!interactiveElement) return;
-
-  const formElement = interactiveElement.closest("form");
-  let parentFormSelector: string | undefined;
-  let parentFormIndex: number | undefined;
-
-  if (formElement) {
-    parentFormSelector = generateCSSSelector(formElement);
-    // Find the index of this form among all forms on the page
-    const allForms = Array.from(document.querySelectorAll("form"));
-    parentFormIndex = allForms.indexOf(formElement);
-    // If form not found in array (shouldn't happen), use -1 as fallback
-    if (parentFormIndex === -1) {
-      parentFormIndex = undefined;
-    }
-  }
-
-  const eventData = {
-    sessionId,
-    timestamp: Date.now(),
-    url: sanitizeURL(window.location.href),
-    route: getCurrentRoute(),
-    actionType: event.type === "focusin" ? "focus" : event.type,
-    elementMetadata: {
-      ...extractElementMetadata(interactiveElement),
-      value: (interactiveElement as any).value,
-      parentForm: parentFormSelector,
-      parentFormIndex: parentFormIndex,
-    },
-    selector: {
-      css: generateCSSSelector(interactiveElement),
-      xpath: generateXPath(interactiveElement),
-    },
-    boundingBox: interactiveElement.getBoundingClientRect(),
-  };
-  lastRecordedEvent = eventData;
-  await saveLastUserAction(eventData);
-
-  if (isAgentGloballyEnabled) scheduleUpdate();
-
-  if (isRecordingActive) {
-    await saveEvent(eventData as any);
-    chrome.runtime
-      .sendMessage({ action: "EVENT_RECORDED", event: eventData })
-      .catch(() => {});
-  }
-};
+}
 
 function handleMessage(
   request: any,
@@ -1269,50 +1580,23 @@ function handleMessage(
   sendResponse: (response?: any) => void,
 ) {
   switch (request.action) {
-    case "START_RECORDING":
-      startRecording();
-      break;
-    case "STOP_RECORDING":
-      stopRecording();
-      break;
     case "TOGGLE_AGENT":
       setAgentState(request.enabled);
       break;
     case "SET_MISSION_PROMPT":
       currentMission = request.prompt || "";
       setMissionPrompt(currentMission);
-      // Invalidate autofill cache so next fill uses the new mission
       cachedAutofillData = null;
       cachedAutofillFieldsKey = null;
-      if (isAgentGloballyEnabled) scheduleUpdate();
       break;
   }
   return true;
 }
 
-async function startRecording() {
-  if (isRecordingActive) return;
-  isRecordingActive = true;
-  await setRecordingStatus(true);
-  attachRecordingListeners();
-}
-
-async function stopRecording() {
-  if (!isRecordingActive) return;
-  isRecordingActive = false;
-  await setRecordingStatus(false);
-  detachRecordingListeners();
-}
-
-function attachRecordingListeners() {
-  /* ... */
-}
-function detachRecordingListeners() {
-  /* ... */
-}
-
 function buildPageContext(): PageContext {
   const visibleActions: ActionCandidate[] = [];
+
+  // ── Clickable elements ───────────────────────────────────────────────────
   document
     .querySelectorAll('a, button, [role="button"], input[type="submit"]')
     .forEach((el) => {
@@ -1338,6 +1622,45 @@ function buildPageContext(): PageContext {
         });
       }
     });
+
+  // ── Text / search input fields ───────────────────────────────────────────
+  // These must be included so the AI can predict "type X into search box" actions.
+  document
+    .querySelectorAll(
+      'input[type="text"], input[type="search"], input[type="email"], input[type="tel"], input:not([type]), textarea',
+    )
+    .forEach((el) => {
+      const element = el as HTMLInputElement | HTMLTextAreaElement;
+      if (element.closest("[data-flow-recorder]")) return;
+
+      const rect = element.getBoundingClientRect();
+      if (rect.width === 0 || rect.height === 0) return;
+
+      // Derive the most descriptive label available
+      let label =
+        element.getAttribute("aria-label")?.trim() ||
+        element.getAttribute("placeholder")?.trim() ||
+        element.getAttribute("title")?.trim() ||
+        "";
+      if (!label && element.id) {
+        const labelEl = document.querySelector(`label[for="${CSS.escape(element.id)}"]`);
+        if (labelEl) label = labelEl.textContent?.trim() || "";
+      }
+      if (!label) {
+        label = `${element.tagName.toLowerCase()} input`;
+      }
+
+      visibleActions.push({
+        label,
+        selector: generateCSSSelector(element),
+        role: "secondary",
+        boundingBox: rect,
+        confidenceScore: 0.6,
+        formSelector: element.closest("form")
+          ? generateCSSSelector(element.closest("form")!)
+          : undefined,
+      });
+    });
   return {
     pageIntent: inferPageIntent(
       window.location.href,
@@ -1346,14 +1669,8 @@ function buildPageContext(): PageContext {
     ),
     visibleActions: visibleActions.slice(0, 50),
     forms: [],
-    lastUserAction: lastRecordedEvent
-      ? {
-          type: lastRecordedEvent.actionType,
-          selector: lastRecordedEvent.selector.css,
-          formSelector: lastRecordedEvent.elementMetadata?.parentForm,
-        }
-      : null,
-    lastActionRect: lastRecordedEvent?.boundingBox || null,
+    lastUserAction: null,
+    lastActionRect: null,
     viewport: {
       width: document.documentElement.clientWidth,
       height: document.documentElement.clientHeight,

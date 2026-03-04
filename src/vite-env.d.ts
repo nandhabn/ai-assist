@@ -20,8 +20,9 @@ interface ImportMetaEnv {
    */
   readonly VITE_AWS_BEDROCK_API_KEY?: string;
   /**
-   * Bedrock model ID to use (default: amazon.nova-lite-v2:0).
-   * Example: amazon.nova-lite-v2:0 or amazon.nova-pro-v1:0
+   * Bedrock model ID to use (default: global.amazon.nova-2-lite-v1:0).
+   * Nova 2 models require the cross-region "global." prefix.
+   * Example: global.amazon.nova-2-lite-v1:0 or global.amazon.nova-2-pro-v1:0
    */
   readonly VITE_AWS_NOVA_MODEL?: string;
   /**

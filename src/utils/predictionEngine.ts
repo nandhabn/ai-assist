@@ -79,6 +79,11 @@ export interface RankedPrediction {
   action: ActionCandidate;
   totalScore: number;
   breakdown: ScoreBreakdown;
+  /**
+   * Text to type into the target element — populated by AI for input/search actions.
+   * Undefined for click/navigation actions.
+   */
+  inputText?: string;
 }
 
 /**
@@ -404,7 +409,11 @@ export function createCompactContext(context: PageContext): CompactContext {
   return {
     pageIntent: context.pageIntent,
     lastActionLabel: lastActionLabel,
-    topVisibleActions: context.visibleActions.map((a) => a.label),
+    // Cap at 20 actions and 80 chars per label to keep the prompt small.
+    // The AI only needs a short candidate list to pick from.
+    topVisibleActions: context.visibleActions
+      .slice(0, 20)
+      .map((a) => a.label.length > 80 ? a.label.slice(0, 77) + "..." : a.label),
     formFields: context.forms.flatMap((f) =>
       f.fields.map((field) => field.name),
     ),

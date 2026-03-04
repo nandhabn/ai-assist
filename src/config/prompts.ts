@@ -72,27 +72,41 @@ export function buildPredictionPrompt(context: CompactContext): string {
     formFields,
     pageMeta,
     mission,
+    stepHistory,
+    plan,
+    currentPlanStep,
   } = context;
 
   const metaBlock = formatPageMeta(pageMeta);
   const metaSection = metaBlock ? `\n${metaBlock}\n` : "";
-  const missionSection = mission
-    ? `\nUser Mission: ${mission}\n`
+  const missionSection = mission ? `\nUser Mission: ${mission}\n` : "";
+  const historySection =
+    stepHistory && stepHistory.length > 0
+      ? `\nCompleted Steps (most recent last):\n${stepHistory
+          .slice(-8)
+          .map((s, i) => `  ${i + 1}. ${s.action} (on ${s.pageUrl})`)
+          .join("\n")}\n`
+      : "";
+
+  // Plan section — shown prominently when available so AI follows it strictly
+  const planSection = plan
+    ? `\n== MISSION PLAN ==\n${plan}\n== EXECUTE PLAN STEP ${currentPlanStep ?? 1} NOW ==\n`
     : "";
 
   return `You are an expert at predicting user actions on a web page.
 Based on the provided context, predict the single most likely next action.
-${metaSection}${missionSection}
+${metaSection}${missionSection}${planSection}${historySection}
 Current Page Intent: ${pageIntent}
 Last Action Taken: ${lastActionLabel || "None"}
 Visible Actions: ${JSON.stringify(topVisibleActions)}
 Available Form Fields: ${JSON.stringify(formFields)}
 
-Respond in STRICT JSON format with the following structure:
+${plan ? `IMPORTANT: You are executing a pre-approved plan. Your chosen action MUST advance plan step ${currentPlanStep ?? 1}. If that step requires navigating to a different site, pick the URL bar, address input, or the closest navigation action available.\n\n` : ""}Respond in STRICT JSON format with the following structure:
 {
   "predictedActionLabel": "string (must be one of the Visible Actions)",
-  "reasoning": "string (explain your choice in one sentence)",
-  "confidenceEstimate": "number (a value between 0.0 and 1.0)"
+  "reasoning": "string (≤60 chars — one very short phrase, e.g. 'advances mission goal')",
+  "confidenceEstimate": "number (a value between 0.0 and 1.0)",
+  "inputText": "string (ONLY include this field when the action is to TYPE text into an input or search field — provide the exact text to type, e.g. 'iphone 17 pro'. Omit entirely for click/navigation actions.)"
 }`;
 }
 
@@ -178,8 +192,103 @@ If the mission appears COMPLETE (i.e. the page shows a success message, confirma
 Respond in STRICT JSON:
 {
   "predictedActionLabel": "string (must be one of the Visible Actions, or 'MISSION_COMPLETE' if done)",
-  "reasoning": "string (explain why this action advances the mission)",
-  "confidenceEstimate": "number (0.0 = mission complete, 0.01-1.0 = confidence in this action)"
+  "reasoning": "string (≤60 chars — one very short phrase, e.g. 'next step toward goal')",
+  "confidenceEstimate": "number (0.0 = mission complete, 0.01-1.0 = confidence in this action)",
+  "inputText": "string (ONLY include when the action is to TYPE into an input/search/textarea field — exact text to type, e.g. 'iphone 17 pro'. Omit for click/navigation actions.)"
+}`;
+}
+
+// ─── Agent Tool-Call Prompt ───────────────────────────────────────────────────
+
+/**
+ * Builds the prompt for the agent tool-calling mode.
+ *
+ * Instead of asking the AI to pick from a list of labels and then fuzzy-matching
+ * that back to a DOM element, this prompt asks the AI to call a concrete typed
+ * tool (navigate / click / type / scroll / done) with explicit parameters.
+ *
+ * The agent executor encodes the returned AgentToolCall as a `__tool__:` selector
+ * so no label-matching is involved in execution.
+ */
+export function buildAgentToolPrompt(context: CompactContext): string {
+  const {
+    pageIntent,
+    pageMeta,
+    mission,
+    stepHistory,
+    plan,
+    currentPlanStep,
+    pageElements,
+    currentUrl,
+  } = context;
+
+  const url = currentUrl ?? pageMeta?.url ?? "unknown";
+  const title = pageMeta?.title ?? "unknown";
+
+  const missionLine = mission
+    ? `MISSION: ${mission}`
+    : "MISSION: (none — explore the page)";
+
+  const planSection = plan
+    ? `\n== MISSION PLAN ==\n${plan}\n\n▶ EXECUTE STEP ${currentPlanStep ?? 1} NOW\n`
+    : "";
+
+  const historySection =
+    stepHistory && stepHistory.length > 0
+      ? `\nCompleted steps (most recent last):\n${stepHistory
+          .slice(-8)
+          .map((s, i) => `  ${i + 1}. ${s.action}  [${s.pageUrl}]`)
+          .join("\n")}\n`
+      : "";
+
+  // Format page elements grouped by type for readability
+  const buttons = pageElements?.filter((e) => e.type === "button").map((e) => `  • "${e.label}"`).join("\n") ?? "";
+  const links   = pageElements?.filter((e) => e.type === "link").map((e) => `  • "${e.label}"`).join("\n") ?? "";
+  const inputs  = pageElements?.filter((e) => e.type === "input" || e.type === "textarea" || e.type === "select").map((e) => `  • "${e.label}" [${e.type}]`).join("\n") ?? "";
+
+  const elementsSection = [
+    buttons  ? `Buttons:\n${buttons}`   : "",
+    links    ? `Links:\n${links}`       : "",
+    inputs   ? `Input fields:\n${inputs}` : "",
+  ].filter(Boolean).join("\n");
+
+  return `You are an autonomous web agent executing a mission step-by-step.
+Choose ONE tool call that advances the mission to the next step.
+
+${missionLine}
+Current page: ${title} (${url})
+Page intent: ${pageIntent}
+${planSection}${historySection}
+Interactive elements on this page:
+${elementsSection || "(no interactive elements detected)"}
+
+Available tools:
+  navigate(url)          — go directly to a full URL (use for plan steps that start a new page)
+  click(label)           — click a button or link whose text matches "label"
+  type(label, text)      — focus an input/select/textarea matching "label" and type "text" into it
+  scroll(direction)      — scroll "up" or "down" to reveal more content
+  done(reason)           — signal the mission is complete or unrecoverable
+
+Rules:
+- Use "navigate" whenever you need to go to a different website or URL — do not try to find a URL bar.
+- Use "click" for buttons and links. The label must closely match one of the listed elements.
+- Use "type" for search boxes, text inputs, dropdowns. Provide the exact text to enter.
+- Only call "done" when the page confirms success (thank-you message, order number, etc.) or when it is impossible to proceed.
+- NEVER repeat the same action you just completed in the "Completed steps" list.
+- If the plan step requires a site you are not on, use navigate() immediately.
+
+Respond with a single JSON object only — no markdown, no extra text:
+{
+  "tool": "navigate|click|type|scroll|done",
+  "params": {
+    "url": "string (navigate only)",
+    "label": "string (click / type — must match an element label above)",
+    "text": "string (type only — exact text to type)",
+    "direction": "up|down (scroll only)",
+    "reason": "string (done only)"
+  },
+  "reasoning": "≤60 chars explaining this choice",
+  "confidenceEstimate": 0.0
 }`;
 }
 

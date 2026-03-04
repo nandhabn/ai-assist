@@ -179,7 +179,7 @@ export class NovaProvider implements AIProvider {
       accessKey:    config.accessKey,
       secretKey:    config.secretKey,
       region:       config.region       || "us-east-1",
-      model:        config.model        || "amazon.nova-lite-v2:0",
+      model:        config.model        || "global.amazon.nova-2-lite-v1:0",
       sessionToken: config.sessionToken,
       bedrockApiKey: config.bedrockApiKey,
     };

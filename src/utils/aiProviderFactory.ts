@@ -5,6 +5,11 @@ import { GeminiProvider } from "./geminiProvider";
 import { ChatGPTProvider } from "./chatgptProvider";
 import { ChatGPTTabProvider } from "./chatgptTabProvider";
 import { NovaProvider, NovaConfig } from "./novaProvider";
+import {
+  BatchingAIProvider,
+  createBatchingProvider,
+} from "./batchingProvider";
+import type { BatchingProviderOptions } from "./batchingProvider";
 
 const providerRegistry: Record<string, (apiKey: string) => AIProvider> = {
   gemini: (apiKey) => new GeminiProvider(apiKey),
@@ -35,3 +40,29 @@ export function createAIProvider(
 export function createNovaProvider(config: NovaConfig): NovaProvider {
   return new NovaProvider(config);
 }
+
+/**
+ * Creates a BatchingAIProvider backed by Gemini.
+ *
+ * Requests that arrive within `flushWindowMs` (default 80 ms) are merged into
+ * a single Gemini API call, dramatically reducing quota consumption when the
+ * agent fires several predictions in parallel.
+ *
+ * @example
+ * const provider = createBatchingAIProvider(apiKey);
+ * // All three predictNextAction calls below share ONE Gemini request:
+ * const [a, b, c] = await Promise.all([
+ *   provider.predictNextAction(ctxA),
+ *   provider.predictNextAction(ctxB),
+ *   provider.predictNextAction(ctxC),
+ * ]);
+ */
+export function createBatchingAIProvider(
+  apiKey: string,
+  options?: BatchingProviderOptions,
+): BatchingAIProvider {
+  return createBatchingProvider(apiKey, options);
+}
+
+export { BatchingAIProvider };
+export type { BatchingProviderOptions };

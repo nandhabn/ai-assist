@@ -24,7 +24,7 @@ export const AI_CONFIG = {
     const secretKey = import.meta.env.VITE_AWS_SECRET_KEY;
     const region    = import.meta.env.VITE_AWS_REGION    || "us-east-1";
     const apiKey    = import.meta.env.VITE_AWS_BEDROCK_API_KEY;
-    const model     = import.meta.env.VITE_AWS_NOVA_MODEL || "amazon.nova-lite-v2:0";
+    const model     = import.meta.env.VITE_AWS_NOVA_MODEL || "global.amazon.nova-2-lite-v1:0";
     const legacy    = import.meta.env.VITE_AWS_BEDROCK_CREDENTIALS;
 
     // Individual vars take priority

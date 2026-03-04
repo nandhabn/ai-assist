@@ -459,6 +459,35 @@ const panelCss = `
   .theme-btn:hover { opacity: 1; background: rgba(0,0,0,0.06); }
   .panel-container.dark .theme-btn:hover { background: rgba(255,255,255,0.08); }
 
+  /* ---- Collapse button ---- */
+  .collapse-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 2px 5px;
+    font-size: 11px;
+    line-height: 1;
+    border-radius: 5px;
+    margin-left: 2px;
+    opacity: 0.7;
+    transition: opacity 0.2s, background 0.2s, transform 0.2s;
+  }
+  .collapse-btn:hover { opacity: 1; background: rgba(0,0,0,0.06); }
+  .panel-container.dark .collapse-btn:hover { background: rgba(255,255,255,0.08); }
+  .collapse-btn.collapsed { transform: rotate(180deg); }
+
+  /* ---- Collapsed state ---- */
+  .panel-body {
+    transition: all 0.2s ease;
+  }
+  .panel-container.collapsed .panel-body {
+    display: none;
+  }
+  .panel-container.collapsed {
+    border-bottom-left-radius: 10px;
+    border-bottom-right-radius: 10px;
+  }
+
   /* ---- Dark theme ---- */
   .panel-container.dark {
     background: #1e1e2e;
@@ -608,7 +637,9 @@ export function initAgentPanel(
         <span class="header-title">Flow Agent</span>
         <span class="auto-badge" id="auto-badge">Auto Executed</span>
         <button id="theme-btn" class="theme-btn" title="Toggle dark mode">🌙</button>
+        <button id="collapse-btn" class="collapse-btn" title="Collapse panel">▲</button>
       </div>
+      <div class="panel-body">
       <div class="confidence-section">
         <div class="confidence-text">
           <span>Confidence</span>
@@ -673,8 +704,26 @@ export function initAgentPanel(
         <div id="agent-plan"><div class="agent-plan-header">🧠 Plan</div><span id="agent-plan-text"></span></div>
         <div id="agent-log"></div>
       </div>
+      </div>
     `;
   shadowRoot.appendChild(container);
+
+  // ---- Collapse toggle ----
+  const COLLAPSE_KEY = "flowAgent_collapsed";
+  const collapseBtn = shadowRoot.getElementById("collapse-btn") as HTMLButtonElement;
+  const applyCollapsed = (collapsed: boolean) => {
+    container.classList.toggle("collapsed", collapsed);
+    collapseBtn.classList.toggle("collapsed", collapsed);
+    collapseBtn.title = collapsed ? "Expand panel" : "Collapse panel";
+  };
+  chrome.storage.local.get(COLLAPSE_KEY, (data) => {
+    applyCollapsed(data[COLLAPSE_KEY] === true);
+  });
+  collapseBtn.addEventListener("click", () => {
+    const isCollapsed = !container.classList.contains("collapsed");
+    chrome.storage.local.set({ [COLLAPSE_KEY]: isCollapsed });
+    applyCollapsed(isCollapsed);
+  });
 
   // ---- Theme toggle (synced across all tabs via chrome.storage.local) ----
   const THEME_KEY = "flowAgent_darkTheme";
