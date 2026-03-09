@@ -216,10 +216,12 @@ export function buildAgentToolPrompt(context: CompactContext): string {
     pageMeta,
     mission,
     stepHistory,
+    turnHistory,
     plan,
     currentPlanStep,
     pageElements,
     currentUrl,
+    postActionObservation,
   } = context;
 
   const url = currentUrl ?? pageMeta?.url ?? "unknown";
@@ -233,24 +235,115 @@ export function buildAgentToolPrompt(context: CompactContext): string {
     ? `\n== MISSION PLAN ==\n${plan}\n\n▶ EXECUTE STEP ${currentPlanStep ?? 1} NOW\n`
     : "";
 
-  const historySection =
-    stepHistory && stepHistory.length > 0
-      ? `\nCompleted steps (most recent last):\n${stepHistory
-          .slice(-8)
-          .map((s, i) => `  ${i + 1}. ${s.action}  [${s.pageUrl}]`)
-          .join("\n")}\n`
-      : "";
+  // ── Rich turn history (preferred) ────────────────────────────────────────
+  // When full turn records are available, render them with page state + AI decision + result.
+  // Falls back to the lightweight stepHistory for backward compatibility.
+  let historySection = "";
+  if (turnHistory && turnHistory.length > 0) {
+    const turnLines = turnHistory.slice(-8).map((t, i) => {
+      const pageShort = t.pageUrl.replace(/^https?:\/\//, "").slice(0, 50);
+      const tc = t.toolCall;
+      let decisionLine = `  Decision: ${tc.tool}`;
+      if (tc.tool === "click" || tc.tool === "type") {
+        decisionLine += ` "${tc.params.label ?? ""}"`;
+        if (tc.tool === "type" && tc.params.text) {
+          decisionLine += ` ← "${tc.params.text.slice(0, 40)}"`;
+        }
+      } else if (tc.tool === "navigate") {
+        decisionLine += ` → ${(tc.params.url ?? "").slice(0, 60)}`;
+      } else if (tc.tool === "scroll") {
+        decisionLine += ` ${tc.params.direction ?? "down"}`;
+      }
+      const confidence = `${Math.round((tc.confidenceEstimate ?? 0) * 100)}%`;
+      decisionLine += `  (confidence: ${confidence})`;
+      if (tc.reasoning) decisionLine += `\n  Reasoning: ${tc.reasoning.slice(0, 80)}`;
+
+      let resultLine = `  Outcome: ${t.success ? "success" : "FAILED"}`;
+      if (t.observation) {
+        const obs = t.observation;
+        const parts: string[] = [];
+        if (obs.urlChanged) parts.push(`navigated from ${obs.previousUrl.replace(/^https?:\/\//, "").slice(0, 40)}`);
+        if (obs.newElements.length > 0) parts.push(`+${obs.newElements.length} new elements (${obs.newElements.slice(0, 3).map((l) => `"${l}"`).join(", ")}${obs.newElements.length > 3 ? "…" : ""})`);
+        if (obs.removedElements.length > 0) parts.push(`-${obs.removedElements.length} removed`);
+        if (parts.length > 0) resultLine += ": " + parts.join(" | ");
+      }
+
+      return `Step ${t.stepNumber} — ${pageShort}\n${decisionLine}\n${resultLine}`;
+    });
+    historySection = `\n== SESSION HISTORY (most recent last) ==\n${turnLines.join("\n\n")}\n`;
+  } else if (stepHistory && stepHistory.length > 0) {
+    // Lightweight fallback
+    const lines = stepHistory.slice(-6).map((s, i) => {
+      const action = s.action.slice(0, 60);
+      const u = s.pageUrl.replace(/^https?:\/\//, "").slice(0, 50);
+      return `  ${i + 1}. ${action}  [${u}]`;
+    }).join("\n");
+    historySection = `\nCompleted steps (most recent last):\n${lines}\n`;
+  }
+
+  // ── Post-action DOM observation ───────────────────────────────────────────
+  let observationSection = "";
+  if (postActionObservation) {
+    const obs = postActionObservation;
+    const lines: string[] = [];
+    if (obs.urlChanged) {
+      lines.push(
+        `  • Page navigated away from: ${obs.previousUrl.replace(/^https?:\/\//, "").slice(0, 60)}`,
+      );
+    }
+    if (obs.newElements.length > 0) {
+      lines.push(
+        `  • New elements appeared: ${obs.newElements
+          .slice(0, 10)
+          .map((l) => `"${l}"`)
+          .join(", ")}`,
+      );
+    }
+    if (obs.removedElements.length > 0) {
+      lines.push(
+        `  • Elements removed: ${obs.removedElements
+          .slice(0, 10)
+          .map((l) => `"${l}"`)
+          .join(", ")}`,
+      );
+    }
+    if (lines.length > 0) {
+      observationSection = `\n== RESULT OF LAST ACTION (DOM re-evaluated) ==\n${lines.join("\n")}\n`;
+    }
+  }
 
   // Format page elements grouped by type for readability
-  const buttons = pageElements?.filter((e) => e.type === "button").map((e) => `  • "${e.label}"`).join("\n") ?? "";
-  const links   = pageElements?.filter((e) => e.type === "link").map((e) => `  • "${e.label}"`).join("\n") ?? "";
-  const inputs  = pageElements?.filter((e) => e.type === "input" || e.type === "textarea" || e.type === "select").map((e) => `  • "${e.label}" [${e.type}]`).join("\n") ?? "";
+  const buttons =
+    pageElements
+      ?.filter((e) => e.type === "button")
+      .map((e) => `  • "${e.label}"`)
+      .join("\n") ?? "";
+  const links =
+    pageElements
+      ?.filter((e) => e.type === "link")
+      .map((e) => `  • "${e.label}"`)
+      .join("\n") ?? "";
+  const inputs =
+    pageElements
+      ?.filter(
+        (e) =>
+          e.type === "input" || e.type === "textarea" || e.type === "select",
+      )
+      .map((e) => {
+        const valueNote = e.currentValue
+          ? ` (currently: "${e.currentValue}")`
+          : "";
+        return `  • "${e.label}" [${e.type}]${valueNote}`;
+      })
+      .join("\n") ?? "";
 
   const elementsSection = [
-    buttons  ? `Buttons:\n${buttons}`   : "",
-    links    ? `Links:\n${links}`       : "",
-    inputs   ? `Input fields:\n${inputs}` : "",
-  ].filter(Boolean).join("\n");
+    buttons ? `Buttons:\n${buttons}` : "",
+    links ? `Links:\n${links}` : "",
+    inputs ? `Input fields:\n${inputs}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
 
   return `You are an autonomous web agent executing a mission step-by-step.
 Choose ONE tool call that advances the mission to the next step.
@@ -258,7 +351,7 @@ Choose ONE tool call that advances the mission to the next step.
 ${missionLine}
 Current page: ${title} (${url})
 Page intent: ${pageIntent}
-${planSection}${historySection}
+${planSection}${observationSection}${historySection}
 Interactive elements on this page:
 ${elementsSection || "(no interactive elements detected)"}
 
@@ -274,8 +367,10 @@ Rules:
 - Use "click" for buttons and links. The label must closely match one of the listed elements.
 - Use "type" for search boxes, text inputs, dropdowns. Provide the exact text to enter.
 - Only call "done" when the page confirms success (thank-you message, order number, etc.) or when it is impossible to proceed.
-- NEVER repeat the same action you just completed in the "Completed steps" list.
+- NEVER repeat an action that appears in the SESSION HISTORY as already executed on the current page.
 - If the plan step requires a site you are not on, use navigate() immediately.
+- Use "SESSION HISTORY" to understand what has been tried, what succeeded, and what failed.
+- Use "RESULT OF LAST ACTION" (when present) to understand what the previous action concretely changed on the page.
 
 Respond with a single JSON object only — no markdown, no extra text:
 {

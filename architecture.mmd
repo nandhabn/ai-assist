@@ -1,0 +1,125 @@
+graph TB
+    subgraph EXT["Chrome Extension Runtime"]
+        direction TB
+
+        subgraph UI_LAYER["UI Layer"]
+            POPUP["Popup\nApp.tsx"]
+            RC["RecorderControl"]
+            FV["FlowViewer"]
+            AIP["AIPanel / Dashboard"]
+            FLYOUT["In-Page Flyout\nflyout.ts"]
+        end
+
+        subgraph BG_LAYER["Background / Message Bus"]
+            BG["background.ts\n(Service Worker)"]
+        end
+
+        subgraph CONTENT_LAYER["Content Script Layer"]
+            CS["content.ts\n(entry point)"]
+            STATE["state.ts\n(per-tab state)"]
+        end
+
+        subgraph AGENT_LAYER["Agent Orchestration Layer"]
+            AM["agentManager.ts\n(lifecycle)"]
+            AE["agentExecutor.ts\n(plan → observe → act loop)"]
+        end
+
+        subgraph DOM_LAYER["DOM Analysis Layer"]
+            CB["contextBuilder.ts\n(scrape DOM)"]
+            PE["predictionEngine.ts\n(score candidates)"]
+            EX["execution.ts\n(perform actions)"]
+        end
+
+        subgraph AI_LAYER["AI Provider Layer"]
+            PR["providers.ts\n(selector)"]
+            FACTORY["aiProviderFactory.ts"]
+            QUEUE["aiQueue.ts\n(rate-limit / batch)"]
+            GEMINI["geminiProvider.ts"]
+            CGPT["chatgptProvider.ts\n+ TabProvider"]
+            NOVA["novaProvider.ts"]
+        end
+
+        subgraph ANALYSIS_LAYER["Flow Analysis Layer"]
+            FA["flowAnalyzer.ts\n(events → graph)"]
+        end
+
+        subgraph INFRA_LAYER["Infrastructure Layer"]
+            STORAGE["storage.ts\nchrome.storage.local"]
+            CONFIG["aiConfig.ts\nprompts.ts"]
+            TYPES["types/\nindex.ts · ai.ts"]
+        end
+    end
+
+    subgraph EXTERNAL["External Services"]
+        G_API["Gemini API"]
+        OAI["OpenAI API"]
+        CGT["ChatGPT Tab\n(browser automation)"]
+        NOVA_API["Nova / Custom API"]
+    end
+
+    %% UI ↔ Background messaging
+    POPUP --> RC & FV & AIP
+    RC -- "START/STOP_RECORDING\nSET_AGENT_ENABLED" --> BG
+    FV -- "GET_EVENTS" --> BG
+    AIP -- "AI settings" --> BG
+
+    %% Background ↔ Content messaging
+    BG -- "broadcast to tabs" --> CS
+    CS -- "events / results" --> BG
+
+    %% Background ↔ Storage
+    BG <--> STORAGE
+
+    %% Content Script init
+    CS --> STATE
+    CS --> FLYOUT
+    CS -- "agentEnabled?" --> AM
+
+    %% Agent orchestration
+    AM --> AE
+    AE --> CB
+    AE --> PE
+    AE --> EX
+    AE -- "planMission\nobserveAndAct" --> PR
+
+    %% AI provider resolution
+    PR --> FACTORY
+    FACTORY --> QUEUE
+    QUEUE --> GEMINI & CGPT & NOVA
+
+    %% External calls
+    GEMINI --> G_API
+    CGPT --> OAI
+    CGPT --> CGT
+    NOVA --> NOVA_API
+
+    %% Flow visualization
+    BG -- "stored events" --> FA
+    FA --> FV
+
+    %% Infrastructure used everywhere
+    STORAGE -. "read/write" .-> CS
+    STORAGE -. "snapshots" .-> AM
+    CONFIG -. "prompts\nprovider cfg" .-> FACTORY
+    TYPES -. "shared types" .-> AM & AE & FA & PR
+
+    %% Styles
+    classDef ui fill:#4A90D9,color:#fff,stroke:#2c6fad
+    classDef bg fill:#E8720C,color:#fff,stroke:#b85a09
+    classDef content fill:#27AE60,color:#fff,stroke:#1e8449
+    classDef agent fill:#8E44AD,color:#fff,stroke:#6c3483
+    classDef dom fill:#16A085,color:#fff,stroke:#0e6655
+    classDef ai fill:#C0392B,color:#fff,stroke:#922b21
+    classDef infra fill:#7F8C8D,color:#fff,stroke:#566573
+    classDef ext fill:#2C3E50,color:#fff,stroke:#1a252f
+    classDef analysis fill:#D35400,color:#fff,stroke:#a04000
+
+    class POPUP,RC,FV,AIP,FLYOUT ui
+    class BG bg
+    class CS,STATE content
+    class AM,AE agent
+    class CB,PE,EX dom
+    class PR,FACTORY,QUEUE,GEMINI,CGPT,NOVA ai
+    class STORAGE,CONFIG,TYPES infra
+    class FA analysis
+    class G_API,OAI,CGT,NOVA_API ext

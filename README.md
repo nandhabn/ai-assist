@@ -1,366 +1,294 @@
-# AI Flow Recorder - Chrome Extension
+# AI Flow Recorder — Chrome Extension
 
-A production-grade Chrome Extension (Manifest V3) that records user interaction flows for AI-powered test automation generation.
+A **Manifest V3** Chrome Extension that does two things at once:
+
+1. **Records** user interaction flows for AI-powered test-automation generation.
+2. **Acts** as a live AI co-pilot — predicting your next UI action in real time using a deterministic scoring engine with an optional Gemini / ChatGPT fallback.
+
+---
 
 ## Features
 
-### 🎯 Core Recording Capabilities
+### 🎯 Flow Recording
 
-- **Click Events**: Tracks all user clicks with element metadata
-- **Input Changes**: Records form field interactions
-- **Form Submissions**: Captures form data and submission events
-- **Route Detection**: Identifies SPA navigation changes
-- **API Interception**: Monitors fetch and XHR calls with response status
+- Captures **clicks**, **input changes**, **form submissions**, **route changes** (SPA-aware), and **API calls** (fetch/XHR).
+- Every event includes:
+  - Session ID, timestamp, URL, and route (pathname)
+  - Full element metadata: tag, ID, className, innerText, name, type, role, aria-label, data-testid
+  - Stable **CSS selector** and **XPath** fallback
+  - API details: method, endpoint, status code, duration
 
-### 📊 Event Tracking
+### 🤖 Live AI Agent (Shadow DOM Panel)
 
-Each recorded event includes:
+- Floating panel injected via Shadow DOM — zero CSS pollution.
+- Shows the **top-3 predicted next actions** with confidence score and per-factor score breakdown (proximity, intent, form, role, direction).
+- Highlights the predicted element on hover.
+- **"Run" button** to execute the predicted action directly.
+- **"Fill Form" assist** — detects active forms and autofills fields with smart placeholder data.
 
-- Session ID & timestamp
-- Current URL and route (pathname)
-- Action type (click, input, submit, api_call, route_change)
-- Complete element metadata:
-  - Tag, ID, className, text content
-  - name, type, role, aria-label, data-testid
-- Reliable CSS selector
-- XPath fallback
-- API details (method, endpoint, status, duration)
+### 🧠 Prediction Engine
 
-### 🧠 AI Intelligence Layer
+- **Deterministic-first**: weighted scoring across five factors before any AI call.
 
-- **Flow Analysis**: Groups events into logical flows with graph structure
-- **Form Detection**: Identifies and maps form fields
-- **API Tracking**: Extracts endpoints and call patterns
-- **Test Point Identification**: Suggests testing scenarios
+  | Factor    | Weight |
+  |-----------|--------|
+  | Proximity | 0.30   |
+  | Intent    | 0.25   |
+  | Form      | 0.25   |
+  | Role      | 0.10   |
+  | Direction | 0.10   |
 
-### 🤖 AI Preparation
+- **Hard form dominance**: submit-type actions inside the active form are boosted ×1.25; out-of-form candidates penalised ×0.75.
+- **AI fallback** (Gemini or ChatGPT) kicks in only when `confidence < 0.2` and the AI cooldown window has passed.
+- AI results are validated by semantic similarity before overriding deterministic results.
 
-Converts recorded flows into:
+### 📊 Flow Analysis & AI Export (Popup)
 
-- **Structured Prompts**: LLM-ready test generation prompts
-- **User Journey Summaries**: High-level flow descriptions
-- **Test Recommendations**: Validation, edge cases, error scenarios
-- **Export Formats**: JSON, Markdown, and structured data
+- **Flow tab**: browse recorded events, view selectors and API calls, export as JSON.
+- **AI tab**: auto-generated summary, structured LLM prompt for test generation, metrics, and suggested test points.
+- Export as JSON or Markdown.
 
-## Installation
+---
 
-### Prerequisites
+## Tech Stack
 
-- Node.js 16+
-- npm or yarn
-- Chrome/Chromium browser
+| Layer      | Technology                                        |
+|------------|---------------------------------------------------|
+| Language   | TypeScript 5                                      |
+| UI (popup) | React 18, CSS modules                             |
+| Build      | Vite 5 (two configs: popup/background + content)  |
+| Extension  | Manifest V3, service worker, content script       |
+| AI         | Gemini / ChatGPT via pluggable `AIProvider` interface |
 
-### Setup
-
-```bash
-# Clone or create project
-cd chrome-extension-flow-recorder
-
-# Install dependencies
-npm install
-
-# Build extension
-npm run build
-
-# Load in Chrome
-# 1. Open chrome://extensions/
-# 2. Enable "Developer mode"
-# 3. Click "Load unpacked"
-# 4. Select the dist/ folder
-```
-
-## Development
-
-```bash
-# Watch mode for development
-npm run dev
-
-# Production build
-npm run build
-
-# Preview build output
-npm run preview
-```
+---
 
 ## Project Structure
 
 ```
-src/
-├── background/
-│   └── background.js          # Service worker for background tasks
-├── content/
-│   └── content.js             # Content script for DOM interaction tracking
-├── popup/
-│   ├── components/
-│   │   ├── RecorderControl.jsx    # Start/Stop/Clear controls
-│   │   ├── FlowViewer.jsx         # View recorded events
-│   │   └── AIPanel.jsx            # AI analysis panel
-│   ├── styles/                    # Component-specific CSS
-│   ├── App.jsx                    # Main popup app
-│   ├── main.jsx                   # React entry point
-│   └── popup.html                 # Popup HTML
-├── utils/
-│   ├── storage.js             # Chrome storage API wrapper
-│   ├── selectorGenerator.js   # CSS & XPath selector generation
-│   ├── elementAnalyzer.js     # DOM element metadata extraction
-│   ├── navigationDetector.js  # SPA route change detection
-│   ├── apiInterceptor.js      # Fetch & XHR interception
-│   ├── flowAnalyzer.js        # Event flow analysis & structuring
-│   └── aiFormatter.js         # AI prompt formatting & export
-├── types/
-│   └── index.js               # JSDoc type definitions
-└── public/
-    └── manifest.json          # Manifest V3 configuration
-
-vite.config.js                # Vite build configuration
-package.json                  # Project dependencies
+chrome-extension-flow-recorder/
+├── public/
+│   └── manifest.json               # Extension manifest (MV3)
+├── src/
+│   ├── background/
+│   │   └── background.ts           # Service worker: messaging, storage, tab broadcast
+│   ├── config/
+│   │   ├── aiConfig.ts             # API key config from VITE_* env vars
+│   │   └── prompts.ts              # AI prompt templates
+│   ├── content/
+│   │   ├── content.ts              # Main content script: recording + agent orchestration
+│   │   ├── agentPanel.ts           # Floating AI panel (Shadow DOM)
+│   │   ├── agentManager.ts         # Agent lifecycle and prediction scheduling
+│   │   ├── autofill.ts             # Form autofill assist
+│   │   ├── chatgptBridge.ts        # Bridge script for ChatGPT tab provider
+│   │   ├── execution.ts            # Execute predicted actions
+│   │   ├── flyout.ts / flyout.css  # Flyout overlay UI
+│   │   ├── formDetect.ts           # Active form detection
+│   │   ├── prediction.ts           # Prediction wiring in content context
+│   │   ├── providers.ts            # AI provider instantiation for content
+│   │   ├── rateLimit.ts            # AI call rate limiting
+│   │   └── state.ts                # Content-script shared state
+│   ├── popup/
+│   │   ├── popup.html
+│   │   ├── main.tsx                # React entry point
+│   │   ├── App.tsx                 # Tabs: Control | Flow | AI
+│   │   ├── App.css
+│   │   ├── components/
+│   │   │   ├── RecorderControl.tsx # Start/Stop/Clear, Agent toggle
+│   │   │   ├── FlowViewer.tsx      # Recorded event list and export
+│   │   │   ├── AIPanel.tsx         # AI analysis, prompts, export
+│   │   │   ├── Dashboard.tsx       # Summary dashboard
+│   │   │   └── MissionBar.tsx / .css
+│   │   └── styles/                 # Component CSS
+│   ├── types/
+│   │   ├── index.ts                # RecordedEvent, FlowNode/Edge, ACTION_TYPES, ElementMetadata
+│   │   └── ai.ts                   # AIProvider, CompactContext, AIPrediction
+│   ├── ui/
+│   │   └── agentPanel.ts           # Panel render helpers
+│   └── utils/
+│       ├── storage.ts              # chrome.storage.local wrapper
+│       ├── selectorGenerator.ts    # CSS selector & XPath generation
+│       ├── elementAnalyzer.ts      # ElementMetadata, form helpers
+│       ├── navigationDetector.ts   # SPA route-change detection
+│       ├── apiInterceptor.ts       # Fetch/XHR interception
+│       ├── flowAnalyzer.ts         # analyzeEventFlow, detectForms, identifyTestPoints
+│       ├── aiFormatter.ts          # prepareFlowData, JSON/Markdown export
+│       ├── contextBuilder.ts       # Full PageContext builder
+│       ├── predictionEngine.ts     # generatePredictions, maybeUseAI, fillFormFields
+│       ├── aiProviderFactory.ts    # createAIProvider(name, apiKey)
+│       ├── geminiProvider.ts       # GeminiProvider
+│       ├── chatgptProvider.ts      # ChatGPTProvider (OpenAI)
+│       ├── chatgptTabProvider.ts   # ChatGPT via tab bridge
+│       ├── novaProvider.ts         # Nova provider
+│       ├── batchingProvider.ts     # Batching wrapper
+│       ├── aiQueue.ts              # AI request queue
+│       └── agentExecutor.ts        # Agent action executor
+├── vite.config.ts                  # Popup + background build
+├── vite.config.content.ts          # Content script build (does not clear dist)
+├── tsconfig.json
+├── package.json
+├── .env                            # API keys (never commit — see below)
+└── dist/                           # Build output loaded by Chrome
 ```
-
-## Usage
-
-### Recording Flows
-
-1. **Open Popup**: Click extension icon in Chrome toolbar
-2. **Start Recording**: Click "Start" button
-3. **Perform Actions**: Interact with the web application
-4. **Stop Recording**: Click "Stop" button
-
-### Viewing Recorded Events
-
-1. Click "Flow" tab in popup
-2. Browse recorded events with expandable details
-3. View selectors, element metadata, and API calls
-4. Export as JSON
-
-### Analyzing with AI
-
-1. Click "AI" tab in popup
-2. View automatic flow analysis:
-   - **Summary**: Pages, actions, APIs at a glance
-   - **LLM Prompt**: Structured prompt for test generation
-   - **Metrics**: Detailed statistics
-   - **Test Points**: Suggested test scenarios
-3. Copy prompt to clipboard or export as markdown
-
-## Architecture
-
-### Manifest V3 Compliance
-
-- ✅ Service worker (not background page)
-- ✅ Content script for DOM access
-- ✅ chrome.storage API for data persistence
-- ✅ No deprecated APIs
-- ✅ ES Modules throughout
-
-### Security & Privacy
-
-- Local-only storage (no backend)
-- No external API calls
-- User-controlled recording
-- Clear button to delete data
-- Session-based isolation
-
-### Performance
-
-- Efficient event deduplication
-- Minimal DOM traversal
-- Optimized storage operations
-- Lazy-loaded UI components
-
-### Prediction Engine Scoring V2
-
-To improve prediction confidence within forms, the scoring model was updated to enforce "Hard Form Dominance." This replaces a simple additive boost with a more aggressive multiplicative approach.
-
-- **Multiplicative Dominance**: If the user is active in a form, the `totalScore` of a `'primary'` action (e.g., a submit button) within that same form is multiplied by `1.25`.
-- **Outside-Form Penalty**: Any action candidate outside the user's active form has its `totalScore` multiplied by `0.75`.
-
-This creates exponential score separation, ensuring that once a user commits to a form, the logical next action within that form is heavily favored, leading to higher confidence scores and more accurate predictions.
-
-## Configuration
-
-### Modifying Recording Behavior
-
-**src/content/content.js**:
-
-```javascript
-// Change tracked elements in shouldTrackElement()
-function shouldTrackElement(element) {
-  // Customize logic here
-}
-```
-
-**src/utils/navigationDetector.js**:
-
-```javascript
-// Adjust SPA detection sensitivity
-export function isDifferentPage(url1, url2) {
-  // Customize page transition detection
-}
-```
-
-## API Reference
-
-### Storage API
-
-```javascript
-import * as storage from "@/utils/storage.js";
-
-await storage.saveEvent(event);
-const events = await storage.getEvents();
-await storage.clearEvents();
-```
-
-### Flow Analysis
-
-```javascript
-import { analyzeEventFlow } from "@/utils/flowAnalyzer.js";
-
-const flow = analyzeEventFlow(events);
-// Returns: { nodes, edges, stats }
-```
-
-### AI Formatting
-
-```javascript
-import { prepareFlowForAI } from "@/utils/aiFormatter.js";
-
-const aiData = await prepareFlowForAI(flowData);
-// Returns: { summary, structuredPrompt, metadata, ... }
-```
-
-### Selector Generation
-
-```javascript
-import {
-  generateCSSSelector,
-  generateXPath,
-} from "@/utils/selectorGenerator.js";
-
-const cssSelector = generateCSSSelector(element);
-const xpathSelector = generateXPath(element);
-```
-
-## Output Examples
-
-### Recorded Event
-
-```json
-{
-  "sessionId": "session_1707043200000_abc123",
-  "timestamp": 1707043200000,
-  "url": "https://example.com/login",
-  "route": "/login",
-  "actionType": "click",
-  "elementMetadata": {
-    "tag": "button",
-    "id": "submit-btn",
-    "className": "btn btn-primary",
-    "innerText": "Sign In",
-    "ariaLabel": "Submit login form"
-  },
-  "selector": {
-    "css": "#submit-btn",
-    "xpath": "/html/body/div/form/button[1]"
-  }
-}
-```
-
-### AI Prepared Flow
-
-```json
-{
-  "summary": "## User Journey Summary\n- Pages visited: 3\n- User actions: 8\n- API calls: 2",
-  "structuredPrompt": "# AI Test Generation Context\n\n## User Flow\nThe user performed...",
-  "metadata": {
-    "sessionId": "session_123",
-    "duration": 45000,
-    "pageCount": 3,
-    "actionCount": 8,
-    "apiCallCount": 2
-  },
-  "flowGraph": {
-    "nodes": [...],
-    "edges": [...]
-  }
-}
-```
-
-## Supported Test Scenarios
-
-The AI panel automatically suggests tests for:
-
-- ✅ Form validation (empty fields, formats, edge cases)
-- ✅ API endpoints (normal flow, errors, timeouts)
-- ✅ Navigation flows (page transitions, state persistence)
-- ✅ Authentication (login, logout, session expiration)
-- ✅ User input (special characters, boundary values)
-
-## Browser Compatibility
-
-- ✅ Chrome 90+
-- ✅ Edge 90+ (Chromium-based)
-- ✅ Brave
-- ✅ Opera
-
-## Limitations
-
-- Records flows on the current tab only
-- No backend integration (local storage only)
-- Limited to web applications (not native apps)
-- Respects CSP restrictions on some sites
-
-## Future Enhancements
-
-- [ ] Multi-tab recording
-- [ ] Cloud sync & collaboration
-- [ ] Custom event filters
-- [ ] Visual flow diagram rendering
-- [ ] Direct test file generation (Cypress, Playwright)
-- [ ] Performance metrics tracking
-- [ ] Network throttling simulation
-
-## Troubleshooting
-
-### Events Not Recorded
-
-1. Ensure extension is enabled in chrome://extensions/
-2. Check recording status (red badge indicates recording)
-3. Clear extension data and try again
-
-### Selectors Not Working
-
-1. CSS selectors are prioritized; XPath used as fallback
-2. Dynamic elements may require custom selector logic
-3. Check browser console for errors
-
-### AI Analysis Missing
-
-1. Requires at least 5-10 events recorded
-2. Check event types are diverse (not just clicks)
-3. Ensure URLs contain meaningful paths
-
-## Development Notes
-
-### Adding New Event Types
-
-1. Add to `ACTION_TYPES` in `src/types/index.js`
-2. Implement listener in `src/content/content.js`
-3. Update analyzer in `src/utils/flowAnalyzer.js`
-
-### Extending AI Analysis
-
-1. Modify `prepareFlowForAI()` in `src/utils/aiFormatter.js`
-2. Update AI panel component `src/popup/components/AIPanel.jsx`
-3. Test with sample flows
-
-## License
-
-MIT
-
-## Support
-
-For issues, feature requests, or contributions, please use GitHub issues.
 
 ---
 
-**Built with React, Vite, and Chrome Manifest V3** 🚀
+## Setup & Installation
+
+### Prerequisites
+
+- Node.js 18+
+- npm
+- Chrome, Edge, or Brave (Chromium-based)
+
+### 1. Install dependencies
+
+```bash
+cd chrome-extension-flow-recorder
+npm install
+```
+
+### 2. Configure API keys (optional)
+
+Create a `.env` file in the project root. These are build-time keys injected by Vite — **never commit this file**.
+
+```env
+VITE_GEMINI_API_KEY=your_gemini_api_key
+VITE_OPENAI_API_KEY=your_openai_api_key
+```
+
+The Gemini key is used first; ChatGPT is the fallback. If neither key is set, the extension uses deterministic predictions only.
+
+### 3. Build
+
+```bash
+npm run build
+```
+
+This runs two Vite builds:
+- **`vite build`** — popup (`popup.html`, `popup.js`) and background service worker (`background.js`).
+- **`vite build --config vite.config.content.ts`** — content script (`content.js`) and ChatGPT bridge (`chatgptBridge.js`).
+
+Output lands in `dist/`.
+
+### 4. Load in Chrome
+
+1. Open `chrome://extensions/`
+2. Enable **Developer mode** (top-right toggle)
+3. Click **Load unpacked**
+4. Select the `dist/` folder
+
+## Development
+
+```bash
+# Watch mode: rebuilds popup/background + content script on change
+npm run dev
+
+# Type-check
+npm run check
+```
+
+
+
+---
+
+## Usage
+
+### Recording a Flow
+
+1. Click the extension icon to open the popup.
+2. **Control tab** → click **Start**.
+3. Interact with any web page.
+4. Click **Stop** when done.
+5. **Flow tab** — browse events, view selectors, or **Export JSON**.
+
+### AI Analysis
+
+1. **AI tab** → view auto-generated summary, LLM prompt, metrics, and test point suggestions.
+2. Copy the structured prompt to clipboard or export as Markdown for use with any LLM.
+
+### Live Agent Panel
+
+The floating panel appears automatically on every page once the extension is loaded. It:
+- Displays top-3 predicted next actions with confidence and score breakdown.
+- Lets you **Run** a prediction or **Fill Form** when a form is active.
+- Can be toggled from the **Control tab** in the popup.
+
+---
+
+## Architecture Overview
+
+### Message Protocol
+
+The background service worker brokers all communication:
+
+| Action            | Sender  | Effect                                          |
+|-------------------|---------|-------------------------------------------------|
+| `START_RECORDING` | Popup   | Persists state; broadcasts to all tabs          |
+| `STOP_RECORDING`  | Popup   | Persists state; broadcasts to all tabs          |
+| `GET_EVENTS`      | Popup   | Returns stored events                           |
+| `CLEAR_EVENTS`    | Popup   | Clears events from storage                      |
+| `SAVE_SESSION`    | Popup   | Appends current events as a saved session       |
+| `TOGGLE_AGENT`    | Popup   | Enables/disables the agent panel on all tabs    |
+| `EVENT_RECORDED`  | Content | Keeps service worker alive                      |
+
+### Storage Keys
+
+All stored in `chrome.storage.local`:
+
+| Key                             | Value                                  |
+|---------------------------------|----------------------------------------|
+| `flowRecorder_events`           | Array of `RecordedEvent`               |
+| `flowRecorder_sessionId`        | Current session ID                     |
+| `flowRecorder_isRecording`      | Boolean                                |
+| `flowRecorder_sessions`         | Saved sessions                         |
+| `flowRecorder_lastUserAction`   | Last event (for agent context)         |
+| `flowRecorder_agentEnabled`     | Whether the agent panel is on          |
+
+### Prediction Pipeline
+
+```
+mousemove / interaction event
+        ↓
+  buildPageContext()
+        ↓
+  generatePredictions(context)   ← deterministic weighted scoring
+        ↓
+  confidence < 0.2 AND cooldown passed?
+        ↓ yes
+  maybeUseAI(context)            ← Gemini / ChatGPT
+        ↓
+  renderAgentPanel(topThree, confidence)
+```
+
+---
+
+## Security & Privacy
+
+- **Local-only storage** — no data leaves the browser unless you paste an exported prompt into an external LLM.
+- API keys are embedded at build time via Vite's `import.meta.env`; they exist only in the extension bundle.
+- The agent panel is isolated in Shadow DOM; it cannot be styled or read by the host page.
+- Elements marked `[data-flow-recorder]` are excluded from recording and prediction.
+
+---
+
+## Limitations
+
+- Recordings are scoped to the active tab (no cross-tab recording).
+- API keys are bundled into the extension — for personal/dev use only. Avoid publishing to the Chrome Web Store with live API keys.
+- AI fallback requires a network connection and a valid API key.
+
+---
+
+## Potential Upgrades
+
+- Move AI calls to the background service worker for better key isolation.
+- Adaptive weight tuning via reinforcement learning.
+- Intent drift detection.
+- Runtime provider switching in the popup UI.
+- Direct test file export (Cypress / Playwright).
+- Multi-tab recording.
+- Prediction heatmap overlay.
+
+---
+
+**Built with TypeScript, React 18, Vite 5, and Chrome Manifest V3**

@@ -9,7 +9,7 @@
  */
 
 import type { PredictionResult, RankedPrediction } from "./predictionEngine";
-import type { FormFieldInfo } from "@/types/ai";
+import type { AgentTurn, FormFieldInfo } from "@/types/ai";
 
 // ─── Configuration ────────────────────────────────────────────────────────────
 
@@ -68,7 +68,24 @@ export interface AgentSession {
   plan?: string;
   estimatedSteps?: number;
   steps: AgentStep[];
+  /** Full turn-by-turn records (page state + AI decision + outcome). */
+  turns: AgentTurn[];
   finalMessage?: string;
+}
+
+/**
+ * Minimal in-flight executor state written to chrome.storage.local after every step
+ * so the session can be resumed transparently after a full-page navigation.
+ */
+export interface AgentResumeSnapshot {
+  session: AgentSession;
+  stepCount: number;
+  aiQueryCount: number;
+  lastSelector: string;
+  stuckCounter: number;
+  visitedActions: string[];
+  filledFormSelectors: string[];
+  turns: AgentTurn[];
 }
 
 /**
@@ -134,6 +151,9 @@ export class AgentExecutor {
   // Track visited url+selector pairs to avoid infinite link-clicking loops
   private visitedActions = new Set<string>();
 
+  // Full turn history for rich AI context
+  private turns: AgentTurn[] = [];
+
   constructor(callbacks: AgentCallbacks, config?: Partial<AgentConfig>) {
     this.callbacks = callbacks;
     this.config = { ...DEFAULT_AGENT_CONFIG, ...config };
@@ -153,6 +173,7 @@ export class AgentExecutor {
       startTime: Date.now(),
       status: "planning",
       steps: this.steps,
+      turns: this.turns,
     };
 
     // ── Planning phase ────────────────────────────────────────────────────
@@ -237,8 +258,75 @@ export class AgentExecutor {
     return this.session;
   }
 
+  /** Appends a full turn record (called by agentManager after each step). */
+  addTurn(turn: AgentTurn): void {
+    this.turns.push(turn);
+    if (this.session) this.session.turns = this.turns;
+  }
+
+  getTurns(): readonly AgentTurn[] {
+    return this.turns;
+  }
+
   updateConfig(partial: Partial<AgentConfig>): void {
     Object.assign(this.config, partial);
+  }
+
+  /**
+   * Returns a serialisable snapshot of the current in-flight state so the
+   * session can be persisted to storage before a page navigation and
+   * restored on the next page load via continueFrom().
+   */
+  getResumeSnapshot(): AgentResumeSnapshot | null {
+    if (!this.session || this.status === "idle" || this.status === "completed" || this.status === "stopped" || this.status === "error") return null;
+    return {
+      session: { ...this.session, steps: [...this.steps], turns: [...this.turns] },
+      stepCount: this.stepCount,
+      aiQueryCount: this.aiQueryCount,
+      lastSelector: this.lastSelector,
+      stuckCounter: this.stuckCounter,
+      visitedActions: Array.from(this.visitedActions),
+      filledFormSelectors: Array.from(this.filledFormSelectors),
+      turns: [...this.turns],
+    };
+  }
+
+  /**
+   * Restores executor state from a persisted snapshot (written before the
+   * previous page navigated away) and continues the mission loop — no reset,
+   * no re-planning.
+   */
+  async continueFrom(snapshot: AgentResumeSnapshot): Promise<void> {
+    if (this.status === "running" || this.status === "planning") return;
+
+    // Restore in-flight state
+    this.turns = [...(snapshot.turns ?? [])];
+    this.session = { ...snapshot.session, steps: [...snapshot.session.steps], turns: this.turns };
+    this.stepCount = snapshot.stepCount;
+    this.steps = [...snapshot.session.steps];
+    this.aiQueryCount = snapshot.aiQueryCount;
+    this.lastSelector = snapshot.lastSelector;
+    this.stuckCounter = snapshot.stuckCounter;
+    this.visitedActions = new Set(snapshot.visitedActions);
+    this.filledFormSelectors = new Set(snapshot.filledFormSelectors);
+
+    this.status = "running";
+    this.abortController = new AbortController();
+    this.callbacks.onStatusChange(
+      "running",
+      this.stepCount,
+      `Continuing after navigation (step ${this.stepCount})…`,
+    );
+
+    try {
+      await this.loop();
+    } catch (err) {
+      if ((this.status as AgentStatus) !== "stopped") {
+        this.status = "error";
+        this.callbacks.onStatusChange("error", this.stepCount, String(err));
+        this.saveSession("error", String(err));
+      }
+    }
   }
 
   // ── Core Loop ─────────────────────────────────────────────────────────────
@@ -385,6 +473,7 @@ export class AgentExecutor {
     this.session.endTime = Date.now();
     this.session.status = status;
     this.session.steps = [...this.steps];
+    this.session.turns = [...this.turns];
     this.session.finalMessage = finalMessage;
     try {
       this.callbacks.onSessionSave?.(this.session);
@@ -396,6 +485,7 @@ export class AgentExecutor {
   private reset(): void {
     this.stepCount = 0;
     this.steps = [];
+    this.turns = [];
     this.stuckCounter = 0;
     this.lastSelector = "";
     this.aiQueryCount = 0;

@@ -116,6 +116,8 @@ export interface AgentPageElement {
   label: string;
   /** Element type category. */
   type: "button" | "link" | "input" | "select" | "textarea" | "other";
+  /** For inputs, selects, and textareas — the value currently typed/selected, if any. */
+  currentValue?: string;
 }
 
 /**
@@ -129,6 +131,44 @@ export interface PageMeta {
   ogSiteName: string;
   keywords: string;
   canonical: string;
+}
+
+/**
+ * Full record of one agent turn: the page state the AI observed, the tool call
+ * it returned, the DOM observation from the action before this one, and the
+ * outcome. Stored in AgentSession.turns[] and sent to the AI as rich history.
+ */
+export interface AgentTurn {
+  stepNumber: number;
+  pageUrl: string;
+  pageTitle: string;
+  /** Visible interactive elements the AI saw at decision time (up to 40). */
+  elementsSnapshot: AgentPageElement[];
+  /** The tool call the AI decided to make. */
+  toolCall: AgentToolCall;
+  /** DOM diff that was visible to the AI before it made this decision (null for step 1). */
+  observation: PostActionObservation | null;
+  /** Whether the tool call was executed successfully. */
+  success: boolean;
+  timestamp: number;
+}
+
+/**
+ * Summarises what changed on the DOM / page after the previous agent action.
+ * Built by diffing the pre-action DOM snapshot against the current DOM state
+ * so the AI knows the concrete result of its last action.
+ */
+export interface PostActionObservation {
+  /** True when the page URL changed as a result of the action. */
+  urlChanged: boolean;
+  /** True when the document title changed. */
+  titleChanged: boolean;
+  /** Labels of interactive elements that were NOT present before the action. */
+  newElements: string[];
+  /** Labels of interactive elements that were present before but have since disappeared. */
+  removedElements: string[];
+  /** The URL the page was on just before the action was executed. */
+  previousUrl: string;
 }
 
 /**
@@ -167,6 +207,11 @@ export interface CompactContext {
    */
   stepHistory?: Array<{ action: string; pageUrl: string }>;
   /**
+   * Full turn-by-turn conversation history: page state + AI decision + DOM result.
+   * Richer than stepHistory — used to give the AI full session memory.
+   */
+  turnHistory?: AgentTurn[];
+  /**
    * The full step-by-step plan generated at the start of the agent session.
    * Included so the AI can stay on track with the original intent.
    */
@@ -186,6 +231,12 @@ export interface CompactContext {
    * The current page URL, included for the agent tool prompt.
    */
   currentUrl?: string;
+  /**
+   * A summary of what changed on the page after the previous agent action —
+   * new/removed elements, URL/title changes.
+   * Populated by prediction.ts before each callAgentTool() call.
+   */
+  postActionObservation?: PostActionObservation;
 }
 
 /**

@@ -41,7 +41,7 @@ export function resetGeminiCallStats() {
 }
 
 const GEMINI_API_ENDPOINT =
-  "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent";
+  "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
 
 // ─── Safe JSON parser ─────────────────────────────────────────────────────────
 
@@ -323,7 +323,11 @@ export class GeminiProvider implements AIProvider {
           generationConfig: {
             response_mime_type: "application/json",
             temperature: 0.1,
-            maxOutputTokens: 1024,
+            maxOutputTokens: 2048,
+            // Disable thinking entirely for tool-call responses.
+            // Gemini 2.5 Flash thinking tokens count against maxOutputTokens,
+            // so reasoning chains eat the budget before the JSON is emitted.
+            thinkingConfig: { thinkingBudget: 0 },
           },
         }),
       });

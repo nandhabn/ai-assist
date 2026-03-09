@@ -15,6 +15,7 @@ import {
   AIProvider,
   CompactContext,
   AIPrediction,
+  AgentToolCall,
   FormFieldInfo,
   AIFormData,
 } from "../types/ai";
@@ -90,6 +91,18 @@ export class QueuedAIProvider implements AIProvider {
 
   async generateFormData(fields: FormFieldInfo[], pageContext?: string): Promise<AIFormData> {
     return this.enqueue("generateFormData", (p) => p.generateFormData(fields, pageContext));
+  }
+
+  async callAgentTool(context: CompactContext): Promise<AgentToolCall> {
+    // Find the first provider in the chain that supports callAgentTool.
+    // This bypasses the standard queue so the agent loop isn't blocked by
+    // other in-flight requests, and avoids routing to providers that don't
+    // implement the tool-call interface.
+    const capable = this.providers.find((p) => typeof p.callAgentTool === "function");
+    if (!capable) {
+      throw new Error("QueuedAIProvider: no provider in the chain implements callAgentTool");
+    }
+    return capable.callAgentTool!(context);
   }
 
   // ── Queue machinery ──────────────────────────────────────────────────────
