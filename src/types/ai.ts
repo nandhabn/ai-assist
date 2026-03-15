@@ -74,7 +74,7 @@ export interface AIProvider {
  * - scroll    Scroll the viewport up or down to reveal more content.
  * - done      Signal that the mission is complete (success or unrecoverable failure).
  */
-export type AgentToolName = "navigate" | "click" | "type" | "scroll" | "done";
+export type AgentToolName = "navigate" | "click" | "type" | "scroll" | "done" | "message";
 
 /**
  * Parameters for each tool.  Only the relevant keys need to be set.
@@ -84,12 +84,16 @@ export interface AgentToolParams {
   url?: string;
   /** click / type: the visible text label, aria-label, or placeholder of the target element. */
   label?: string;
-  /** type: the exact text to type. */
+  /** type: the exact text to type into the element. */
   text?: string;
   /** scroll: "up" or "down". */
   direction?: "up" | "down";
   /** done: short human-readable reason (success message or failure explanation). */
   reason?: string;
+  /** message: the text to display on screen to the user. */
+  message?: string;
+  /** delay: milliseconds to wait. */
+  ms?: number;
 }
 
 /**
@@ -98,13 +102,21 @@ export interface AgentToolParams {
  */
 export interface AgentToolCall {
   /** Which tool to invoke. */
-  tool: AgentToolName;
+  tool: AgentToolName | string;
   /** Parameters for the tool. */
   params: AgentToolParams;
   /** One-line reasoning for this tool choice (for logging/debugging). */
   reasoning: string;
   /** Confidence in this tool call, 0.0–1.0. */
   confidenceEstimate: number;
+  /** The plan step number (1-based) this tool call is advancing. Set by the AI. */
+  planStep?: number;
+  /**
+   * Pre-resolved steps for a skill tool (populated by prediction.ts when the AI
+   * calls a custom skill tool name).  Execution.ts runs these instead of dispatching
+   * the raw tool name through the built-in switch.
+   */
+  skillSteps?: import("@/utils/skillsStorage").SkillToolStep[];
 }
 
 /**
@@ -169,6 +181,11 @@ export interface PostActionObservation {
   removedElements: string[];
   /** The URL the page was on just before the action was executed. */
   previousUrl: string;
+  /**
+   * When the previous action failed, a human-readable description of why
+   * (e.g. "No element found matching 'Buy Now'"). Null/absent on success.
+   */
+  failureReason?: string;
 }
 
 /**
@@ -228,9 +245,20 @@ export interface CompactContext {
    */
   pageElements?: AgentPageElement[];
   /**
+   * Enabled agent skills to inject into the prompt.
+   * Loaded from chrome.storage.local by prediction.ts before each callAgentTool() call.
+   */
+  skills?: import("@/utils/skillsStorage").AgentSkill[];
+  /**
    * The current page URL, included for the agent tool prompt.
    */
   currentUrl?: string;
+  /**
+   * Key visible page text (headings, prices, short descriptions) extracted
+   * from the live DOM. Gives the AI price/content context that interactive
+   * element labels alone don't capture.
+   */
+  pageText?: string;
   /**
    * A summary of what changed on the page after the previous agent action —
    * new/removed elements, URL/title changes.

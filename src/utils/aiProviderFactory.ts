@@ -11,9 +11,9 @@ import {
 } from "./batchingProvider";
 import type { BatchingProviderOptions } from "./batchingProvider";
 
-const providerRegistry: Record<string, (apiKey: string) => AIProvider> = {
-  gemini: (apiKey) => new GeminiProvider(apiKey),
-  chatgpt: (apiKey) => new ChatGPTProvider(apiKey),
+const providerRegistry: Record<string, (apiKey: string, model?: string) => AIProvider> = {
+  gemini: (apiKey, model) => new GeminiProvider(apiKey, model),
+  chatgpt: (apiKey, model) => new ChatGPTProvider(apiKey, model),
   "chatgpt-tab": (_apiKey) => new ChatGPTTabProvider(),
 };
 
@@ -28,12 +28,13 @@ const providerRegistry: Record<string, (apiKey: string) => AIProvider> = {
 export function createAIProvider(
   providerName: string,
   apiKey: string,
+  model?: string,
 ): AIProvider {
   const providerFactory = providerRegistry[providerName];
   if (!providerFactory) {
     throw new Error(`AI provider "${providerName}" is not registered.`);
   }
-  return providerFactory(apiKey);
+  return providerFactory(apiKey, model);
 }
 
 /** Creates a NovaProvider from a structured config object. */

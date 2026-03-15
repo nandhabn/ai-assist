@@ -30,7 +30,7 @@ export interface AgentConfig {
 
 export const DEFAULT_AGENT_CONFIG: AgentConfig = {
   maxSteps: 30,
-  maxAIQueries: 10,
+  maxAIQueries: 20,
   minConfidence: 0.1,
   stepDelayMs: 2000,
   settleTimeMs: 1500,
@@ -55,6 +55,8 @@ export interface AgentStep {
   timestamp: number;
   success: boolean;
   pageUrl: string;
+  /** The full prompt text sent to the AI for this step (for debugging / tooltip display). */
+  prompt?: string;
 }
 
 /** Full record of a single agent session — persisted to chrome.storage.local. */
@@ -67,6 +69,8 @@ export interface AgentSession {
   status: AgentStatus;
   plan?: string;
   estimatedSteps?: number;
+  /** Current plan step (1-based), tracked separately from total tool-call count. */
+  currentPlanStep?: number;
   steps: AgentStep[];
   /** Full turn-by-turn records (page state + AI decision + outcome). */
   turns: AgentTurn[];
@@ -148,8 +152,30 @@ export class AgentExecutor {
   // Track filled forms so we don't re-fill the same form in a loop
   private filledFormSelectors = new Set<string>();
 
-  // Track visited url+selector pairs to avoid infinite link-clicking loops
+  // Track visited url+selector pairs to avoid infinite link-clicking loops.
+  // Key is normalized (strips AI reasoning/confidence noise) so that retrying
+  // the same element after a different failure still works.
   private visitedActions = new Set<string>();
+
+  // Count consecutive scroll actions — if too many in a row, hint AI to stop.
+  private consecutiveScrolls = 0;
+  private static readonly MAX_CONSECUTIVE_SCROLLS = 3;
+
+  // Count consecutive no-op tool calls (message / delay) that don't change page
+  // state. After just 1 consecutive no-op the next call is intercepted and
+  // returned as a failure so it shows as ⚠ in the very next observation prompt.
+  private consecutiveNoOps = 0;
+  private static readonly MAX_CONSECUTIVE_NO_OPS = 1;
+
+  // Cached reference to the content state module (loaded lazily once to avoid
+  // circular imports, then reused synchronously for all subsequent writes).
+  private _stateModule: { state: { lastActionFailure: string | null } } | null = null;
+  private async getState(): Promise<{ lastActionFailure: string | null }> {
+    if (!this._stateModule) {
+      this._stateModule = await import("../content/state");
+    }
+    return this._stateModule.state;
+  }
 
   // Full turn history for rich AI context
   private turns: AgentTurn[] = [];
@@ -258,6 +284,11 @@ export class AgentExecutor {
     return this.session;
   }
 
+  /** Update the current plan step (called by agentManager after each AI tool call). */
+  setPlanStep(planStep: number): void {
+    if (this.session) this.session.currentPlanStep = planStep;
+  }
+
   /** Appends a full turn record (called by agentManager after each step). */
   addTurn(turn: AgentTurn): void {
     this.turns.push(turn);
@@ -309,6 +340,8 @@ export class AgentExecutor {
     this.stuckCounter = snapshot.stuckCounter;
     this.visitedActions = new Set(snapshot.visitedActions);
     this.filledFormSelectors = new Set(snapshot.filledFormSelectors);
+    this.consecutiveNoOps = 0;
+    this.consecutiveScrolls = 0;
 
     this.status = "running";
     this.abortController = new AbortController();
@@ -388,7 +421,7 @@ export class AgentExecutor {
       }
 
       if (!result.topThree.length) {
-        this.finish("No actionable elements found");
+        this.finish(result.isDone ? (result.doneReason ?? "Mission complete") : "No actionable elements found");
         break;
       }
 
@@ -405,27 +438,55 @@ export class AgentExecutor {
         break;
       }
 
-      // 6. Skip already-visited url+selector combinations to break navigation loops
-      const actionKey = `${window.location.href}::${topPrediction.action.selector}`;
-      if (this.visitedActions.has(actionKey)) {
+      // 6. Skip already-visited url+selector combinations to break navigation loops.
+      // Scrolls are exempt (scrolling the same direction multiple times is valid).
+      // Keys are normalized — reasoning/confidence stripped — so recovery retries
+      // of a previously-successful action aren't incorrectly blocked.
+      const actionKey = AgentExecutor.stableActionKey(
+        window.location.href,
+        topPrediction.action.selector,
+      );
+      if (actionKey && this.visitedActions.has(actionKey)) {
         // Try the next-best unvisited prediction
-        const freshPred = result.topThree.find(
-          (p) => !this.visitedActions.has(`${window.location.href}::${p.action.selector}`),
-        );
+        const freshPred = result.topThree.find((p) => {
+          const k = AgentExecutor.stableActionKey(window.location.href, p.action.selector);
+          return !k || !this.visitedActions.has(k);
+        });
         if (!freshPred) {
-          this.finish("All candidate actions on this page already visited");
-          break;
+          // All top-3 candidates have been tried — ask the AI to decide what to do.
+          // Inject a hint so the next observation prompt surfaces the situation,
+          // clear this page's visited entries so the AI's new suggestion can run,
+          // and continue. stuckCounter guards against an infinite ask/retry loop.
+          this.stuckCounter++;
+          if (this.stuckCounter >= AgentExecutor.MAX_STUCK) {
+            this.finish("All candidate actions visited and AI could not suggest a new path");
+            break;
+          }
+          import("../content/state").then(({ state }) => {
+            state.lastActionFailure =
+              "All candidate actions on this page have already been tried. " +
+              "If the mission is complete, signal isDone. " +
+              "Otherwise, suggest a completely different action or navigation path.";
+          });
+          // Clear only the current page's visited entries so retries aren't blocked.
+          const currentUrl = window.location.href;
+          for (const key of this.visitedActions) {
+            if (key.startsWith(`${currentUrl}::`)) this.visitedActions.delete(key);
+          }
+          continue;
         }
-        // Use it instead
-        const freshKey = `${window.location.href}::${freshPred.action.selector}`;
-        this.visitedActions.add(freshKey);
+        // Use it instead (add to visited only once it succeeds)
         this.lastSelector = freshPred.action.selector;
         this.stuckCounter = 0;
+        if (this.status !== "running") break;
         const freshSuccess = await this.callbacks.execute(freshPred);
         this.recordStep(freshPred.action.label, freshPred.action.selector, freshSuccess);
+        if (freshSuccess) {
+          const freshKey = AgentExecutor.stableActionKey(window.location.href, freshPred.action.selector);
+          if (freshKey) this.visitedActions.add(freshKey);
+        }
         continue;
       }
-      this.visitedActions.add(actionKey);
 
       // 7. Stuck detection — same selector repeatedly (secondary guard)
       if (topPrediction.action.selector === this.lastSelector) {
@@ -439,7 +500,8 @@ export class AgentExecutor {
       }
       this.lastSelector = topPrediction.action.selector;
 
-      // 8. Execute
+      // 8. Execute — bail out if the agent was stopped while AI was thinking
+      if (this.status !== "running") break;
       const success = await this.callbacks.execute(topPrediction);
       this.recordStep(
         topPrediction.action.label,
@@ -447,12 +509,56 @@ export class AgentExecutor {
         success,
       );
 
-      if (!success) {
-        this.stuckCounter++;
-        if (this.stuckCounter >= AgentExecutor.MAX_STUCK) {
-          this.finish("Cannot find target elements to click");
-          break;
+      // Track consecutive scrolls — inject an observation hint if stuck scrolling.
+      const isScroll = topPrediction.action.selector.startsWith("__tool__:") &&
+        topPrediction.action.selector.includes('"tool":"scroll"');
+      if (isScroll) {
+        this.consecutiveScrolls++;
+        if (this.consecutiveScrolls >= AgentExecutor.MAX_CONSECUTIVE_SCROLLS) {
+          const st = await this.getState();
+          st.lastActionFailure =
+            `Scrolling has revealed no new elements for ${this.consecutiveScrolls} consecutive steps. ` +
+            "Stop scrolling and instead click a visible element already present on the page.";
         }
+      } else {
+        this.consecutiveScrolls = 0;
+      }
+
+      // Track consecutive no-op tools (message / delay) that don't modify page state.
+      // After MAX_CONSECUTIVE_NO_OPS, the failure is injected SYNCHRONOUSLY so it
+      // shows as ⚠ LAST ACTION FAILED in the very next observation prompt — which
+      // is far more prominent than a soft hint lost in the observation section.
+      const isNoOp = topPrediction.action.selector.startsWith("__tool__:") &&
+        (topPrediction.action.selector.includes('"tool":"message"') ||
+         topPrediction.action.selector.includes('"tool":"delay"'));
+      if (isNoOp) {
+        this.consecutiveNoOps++;
+        if (this.consecutiveNoOps > AgentExecutor.MAX_CONSECUTIVE_NO_OPS) {
+          // Intercept — skip execute entirely, inject failure, and continue so
+          // the ⚠ appears in the very next AI prompt without wasting an execution.
+          const st = await this.getState();
+          st.lastActionFailure =
+            `FORBIDDEN: You called message() or delay() ${this.consecutiveNoOps} times in a row. ` +
+            "message() is NOT a way to acknowledge plan steps. " +
+            "Your ONLY valid next tools are: click, type, navigate, scroll, or done.";
+          this.recordStep(topPrediction.action.label, topPrediction.action.selector, false);
+          continue;
+        }
+      } else {
+        this.consecutiveNoOps = 0;
+      }
+
+      // Add to visitedActions only on success, so failed-action retries aren't blocked.
+      if (success && actionKey) {
+        this.visitedActions.add(actionKey);
+      }
+
+      if (!success) {
+        // Don't stop — the failure reason is stored in state.lastActionFailure,
+        // which buildPostActionObservation() will surface to the AI on the very
+        // next think step so it can choose a recovery action.
+        // stuckCounter is only used for the "same selector repeated" guard above.
+        console.warn("[Agent] Action failed — passing failure reason to AI for recovery.");
       }
     }
 
@@ -467,6 +573,27 @@ export class AgentExecutor {
   }
 
   // ── Helpers ───────────────────────────────────────────────────────────────
+
+  /**
+   * Returns a stable dedup key for visitedActions, stripping AI-generated noise
+   * (reasoning text, confidence scores) from __tool__: selectors so that the
+   * same logical action always maps to the same key regardless of how the AI
+   * worded its reasoning.
+   *
+   * Returns null for scroll actions — scroll dedup is handled separately.
+   */
+  private static stableActionKey(url: string, selector: string): string | null {
+    if (selector.startsWith("__tool__:")) {
+      try {
+        const tc = JSON.parse(selector.slice(9 /* "__tool__:".length */));
+        if (tc.tool === "scroll") return null; // never deduplicate scrolls
+        return `${url}::${tc.tool}:${JSON.stringify(tc.params ?? {})}`;
+      } catch {
+        // Fall through to default
+      }
+    }
+    return `${url}::${selector}`;
+  }
 
   private saveSession(status: AgentStatus, finalMessage?: string): void {
     if (!this.session) return;
@@ -497,6 +624,16 @@ export class AgentExecutor {
     this.status = "completed";
     this.callbacks.onStatusChange("completed", this.stepCount, reason);
     this.saveSession("completed", reason);
+    // Show a toast so the user knows the agent has finished — import lazily
+    // to avoid pulling the DOM module into non-content-script contexts.
+    import("../content/agent/execution").then(({ showAgentMessage }) => {
+      const isSuccess = /complete|confirm|success|done/i.test(reason);
+      showAgentMessage(
+        `🤖 Agent finished: ${reason}`,
+        isSuccess ? "success" : "info",
+        7000,
+      );
+    }).catch(() => {});
   }
 
   private recordStep(

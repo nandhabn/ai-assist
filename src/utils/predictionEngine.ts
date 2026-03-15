@@ -92,6 +92,10 @@ export interface RankedPrediction {
 export interface PredictionResult {
   topThree: RankedPrediction[];
   confidence: number; // Overall confidence (topScore - secondScore)
+  /** True when the AI explicitly called tool: "done" (mission complete or unrecoverable). */
+  isDone?: boolean;
+  /** The AI's reason string from done(reason). */
+  doneReason?: string;
 }
 
 // ===================================================================================

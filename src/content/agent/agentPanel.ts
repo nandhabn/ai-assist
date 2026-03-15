@@ -9,8 +9,8 @@
 import type {
   PredictionResult,
   RankedPrediction,
-} from "../utils/predictionEngine";
-import type { AgentStatus, AgentStep } from "../utils/agentExecutor";
+} from "../../utils/predictionEngine";
+import type { AgentStatus, AgentStep } from "../../utils/agentExecutor";
 
 type ExecuteCallback = (prediction: RankedPrediction) => void;
 type RecalculateCallback = () => void;
@@ -443,6 +443,69 @@ const panelCss = `
     margin-bottom: 4px;
   }
 
+  /* ---- Step detail tooltip ---- */
+  #step-tooltip {
+    display: none;
+    position: fixed;
+    z-index: 2147483647;
+    background: #1e1e2e;
+    color: #e5e7eb;
+    font-size: 11px;
+    font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+    line-height: 1.65;
+    padding: 8px 10px;
+    border-radius: 7px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.35);
+    max-width: 340px;
+    white-space: pre-wrap;
+    word-break: break-all;
+    border: 1px solid #374151;
+    cursor: text;
+    user-select: text;
+  }
+  #step-tooltip.visible { display: block; }
+  #step-tooltip .tt-label {
+    font-weight: 700;
+    color: #a78bfa;
+    margin-bottom: 2px;
+    display: block;
+  }
+  #step-tooltip .tt-row {
+    display: flex;
+    gap: 4px;
+  }
+  #step-tooltip .tt-key {
+    color: #9ca3af;
+    min-width: 64px;
+    flex-shrink: 0;
+  }
+  #step-tooltip .tt-val {
+    color: #e5e7eb;
+    word-break: break-all;
+  }
+  #step-tooltip .tt-val.ok  { color: #4ade80; }
+  #step-tooltip .tt-val.fail { color: #f87171; }
+  #step-tooltip .tt-prompt {
+    margin-top: 5px;
+    padding-top: 5px;
+    border-top: 1px solid #374151;
+    color: #c4b5fd;
+    font-size: 10px;
+    white-space: pre-wrap;
+    word-break: break-all;
+    max-height: 160px;
+    overflow-y: auto;
+  }
+  #step-tooltip .tt-prompt-label {
+    font-size: 10px;
+    font-weight: 700;
+    color: #a78bfa;
+    display: block;
+    margin-bottom: 2px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+
   /* ---- Theme toggle button ---- */
   .theme-btn {
     background: none;
@@ -707,6 +770,12 @@ export function initAgentPanel(
       </div>
     `;
   shadowRoot.appendChild(container);
+
+  // Floating tooltip — appended to shadow root directly so it is never
+  // clipped by the #agent-log overflow container.
+  const stepTooltip = document.createElement("div");
+  stepTooltip.id = "step-tooltip";
+  shadowRoot.appendChild(stepTooltip);
 
   // ---- Collapse toggle ----
   const COLLAPSE_KEY = "flowAgent_collapsed";
@@ -1337,6 +1406,75 @@ export function appendAgentLogEntry(step: AgentStep) {
   entry.innerHTML = `<span class="agent-log-step">${step.stepNumber}.</span>`
     + `<span class="agent-log-action">${escapeHtml(step.action)}</span>`
     + `<span class="${step.success ? "agent-log-ok" : "agent-log-fail"}">${step.success ? "✓" : "✗"}</span>`;
+
+  // ── Tooltip: show full step details on hover ──────────────────────────
+  const time = new Date(step.timestamp).toLocaleTimeString();
+  const statusClass = step.success ? "ok" : "fail";
+  const statusText  = step.success ? "✓ success" : "✗ failed";
+
+  // Build prompt section: prefer the full prompt stored on the step, fall back to tool-call params
+  let promptHtml = "";
+  if ((step as AgentStep & { prompt?: string }).prompt) {
+    promptHtml =
+      `<div class="tt-prompt"><span class="tt-prompt-label">📋 Prompt sent to AI</span>` +
+      escapeHtml((step as AgentStep & { prompt?: string }).prompt!) +
+      `</div>`;
+  } else if (step.selector?.startsWith("__tool__:")) {
+    try {
+      const toolCall = JSON.parse(step.selector.slice("__tool__:".length)) as { tool?: string; params?: Record<string, unknown> };
+      const formatted = JSON.stringify(toolCall.params ?? toolCall, null, 2);
+      promptHtml =
+        `<div class="tt-prompt"><span class="tt-prompt-label">🤖 Tool Call</span>` +
+        `tool: ${escapeHtml(toolCall.tool ?? "")}\nparams: ${escapeHtml(formatted)}</div>`;
+    } catch { /* not valid JSON — skip */ }
+  }
+
+  let hideTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const getTooltip = () => shadowRoot!.getElementById("step-tooltip");
+
+  const buildTooltipContent = () =>
+    `<span class="tt-label">Step ${step.stepNumber}</span>` +
+    `<div class="tt-row"><span class="tt-key">Action</span><span class="tt-val">${escapeHtml(step.action)}</span></div>` +
+    `<div class="tt-row"><span class="tt-key">Page</span><span class="tt-val">${escapeHtml(step.pageUrl)}</span></div>` +
+    `<div class="tt-row"><span class="tt-key">Time</span><span class="tt-val">${time}</span></div>` +
+    `<div class="tt-row"><span class="tt-key">Status</span><span class="tt-val ${statusClass}">${statusText}</span></div>` +
+    promptHtml;
+
+  const showTooltip = (e: MouseEvent) => {
+    if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
+    const tooltip = getTooltip();
+    if (!tooltip) return;
+    tooltip.innerHTML = buildTooltipContent();
+    tooltip.classList.add("visible");
+    positionStepTooltip(tooltip, e);
+  };
+
+  const scheduleHide = () => {
+    hideTimer = setTimeout(() => {
+      getTooltip()?.classList.remove("visible");
+      hideTimer = null;
+    }, 120);
+  };
+
+  entry.addEventListener("mouseenter", showTooltip);
+  entry.addEventListener("mousemove",  (e) => {
+    const tooltip = getTooltip();
+    if (tooltip?.classList.contains("visible")) positionStepTooltip(tooltip, e);
+  });
+  entry.addEventListener("mouseleave", scheduleHide);
+
+  // When the mouse moves onto the tooltip itself, cancel the pending hide
+  // so it stays open and the user can read / select text.
+  setTimeout(() => {
+    const tooltip = getTooltip();
+    if (!tooltip) return;
+    tooltip.addEventListener("mouseenter", () => {
+      if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
+    });
+    tooltip.addEventListener("mouseleave", scheduleHide);
+  }, 0);
+
   log.appendChild(entry);
   log.scrollTop = log.scrollHeight;
 }
@@ -1365,6 +1503,19 @@ export function clearAgentLog() {
 
 function escapeHtml(str: string): string {
   return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+/** Position the step tooltip near the mouse, keeping it on-screen. */
+function positionStepTooltip(tooltip: HTMLElement, e: MouseEvent) {
+  const PAD = 14;
+  const W = window.innerWidth;
+  const H = window.innerHeight;
+  const tw = tooltip.offsetWidth || 320;
+  const th = tooltip.offsetHeight || 120;
+  const left = e.clientX + PAD + tw > W ? e.clientX - tw - PAD : e.clientX + PAD;
+  const top  = e.clientY + th + PAD > H ? e.clientY - th - PAD : e.clientY + PAD;
+  tooltip.style.left = `${left}px`;
+  tooltip.style.top  = `${top}px`;
 }
 
 export function toggleAgentPanelVisibility(visible: boolean) {

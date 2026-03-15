@@ -24,12 +24,12 @@ import {
   flashAutoExecution,
   showAgentPlan,
 } from "./agentPanel";
-import { state } from "./state";
-import { getAIProvider } from "./providers";
+import { state } from "../state";
+import { getAIProvider } from "../ai/providers";
 import { predictForAgent, consumeLastPredictionContext } from "./prediction";
 import { executeForAgent } from "./execution";
-import { detectFormForAgent, fillFormForAgent, checkAndShowFormBanner } from "./formDetect";
-import { generateAutofillData } from "./autofill";
+import { detectFormForAgent, fillFormForAgent, checkAndShowFormBanner } from "../form/formDetect";
+import { generateAutofillData } from "../form/autofill";
 
 // ─── Snapshot persistence (cross-navigation resume) ─────────────────────────
 
@@ -170,10 +170,16 @@ export function getOrCreateAgentExecutor(): AgentExecutor {
             .catch(() => {});
         },
         onStepComplete: (step: AgentStep) => {
+          // Attach the prompt sent to the AI before rendering so the tooltip can show it
+          const predCtx = consumeLastPredictionContext();
+          if (predCtx?.prompt) step.prompt = predCtx.prompt;
+          // Update the plan step counter from what the AI reported (independent of tool-call count)
+          if (predCtx?.toolCall.planStep != null) {
+            state.agentExecutor?.setPlanStep(predCtx.toolCall.planStep);
+          }
           appendAgentLogEntry(step);
           flashAutoExecution();
           // Build and record the full turn (page state + AI decision + outcome)
-          const predCtx = consumeLastPredictionContext();
           if (predCtx && state.agentExecutor) {
             state.agentExecutor.addTurn({
               stepNumber:      step.stepNumber,
@@ -233,7 +239,8 @@ export function handleAgentResume(): void {
 export async function planMission(
   mission: string,
 ): Promise<{ plan: string; estimatedSteps?: number }> {
-  const provider = state.aiProvider || getAIProvider();
+  if (state.aiProvider === undefined) state.aiProvider = await getAIProvider();
+  const provider = state.aiProvider;
   if (!provider) return { plan: "No AI provider available." };
 
   const pageTitle = document.title;
@@ -270,7 +277,8 @@ export async function planMission(
     }
   } catch (e) {
     console.warn("[Agent] planMission failed:", e);
-    return { plan: "Planning failed — proceeding without a pre-defined plan." };
+    state.agentExecutor?.stop();
+    return { plan: "Planning failed - Stopped agent." };
   }
 }
 

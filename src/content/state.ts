@@ -33,4 +33,7 @@ export const state = {
   cachedAutofillData: null as Record<string, string> | null,
   cachedAutofillFieldsKey: null as string | null,
   isAutofillGenerating: false,
+
+  // Set by executeForAgent when an action fails; consumed by buildPostActionObservation
+  lastActionFailure: null as string | null,
 };

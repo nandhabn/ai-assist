@@ -1,16 +1,19 @@
 // src/config/aiConfig.ts
 
 /**
- * @Architectural-Note This module centralizes the access to environment variables
- * related to AI providers. It leverages Vite's `import.meta.env` feature to load
- * keys from a `.env` file at build time, with types defined in `vite-env.d.ts`.
+ * @Architectural-Note Keys are loaded at runtime from chrome.storage.local
+ * (user-provided via the Settings panel), with build-time .env vars as fallback
+ * for local development. Use `getAIConfig()` for runtime key resolution.
  *
- * @Security-Note While using .env files is better than hardcoding, these keys are
- * still embedded in the compiled content script. For a production extension, the
- * most secure pattern is for the user to enter their key in the extension's options
- * page, where it is stored in `chrome.storage.local`.
+ * @Security-Note Keys are stored in chrome.storage.local — sandboxed to the
+ * extension and never embedded in the bundle.
  */
 
+import { getUserKeys, type ProviderName } from "@/utils/storage";
+
+export type { ProviderName };
+
+/** Build-time fallback config (used during local development via .env). */
 export const AI_CONFIG = {
   gemini: import.meta.env.VITE_GEMINI_API_KEY,
   chatgpt: import.meta.env.VITE_OPENAI_API_KEY,
@@ -48,28 +51,59 @@ export const AI_CONFIG = {
 };
 
 // Convenience alias used in provider-presence checks
-// (keep existing callers like `if (AI_CONFIG.nova)` working)
 (AI_CONFIG as any).nova = AI_CONFIG.novaConfig;
+
+export interface ResolvedAIConfig {
+  gemini?: string;
+  chatgpt?: string;
+  novaConfig: typeof AI_CONFIG.novaConfig;
+  chatgptTab: boolean;
+  preferredProvider?: ProviderName;
+  preferredModel?: string;
+}
+
+/**
+ * Runtime config that merges user-stored keys (from Settings panel) over
+ * build-time env vars. User keys always win.
+ */
+export async function getAIConfig(): Promise<ResolvedAIConfig> {
+  const userKeys = await getUserKeys();
+
+  const novaConfig = (() => {
+    if (userKeys.awsAccessKey && userKeys.awsSecretKey) {
+      return {
+        accessKey:     userKeys.awsAccessKey,
+        secretKey:     userKeys.awsSecretKey,
+        region:        userKeys.awsRegion || "us-east-1",
+        model:         userKeys.preferredProvider === "nova" && userKeys.preferredModel
+                         ? userKeys.preferredModel
+                         : "global.amazon.nova-2-lite-v1:0",
+        bedrockApiKey: undefined as string | undefined,
+      };
+    }
+    return AI_CONFIG.novaConfig;
+  })();
+
+  return {
+    gemini:            userKeys.gemini  || AI_CONFIG.gemini,
+    chatgpt:           userKeys.openai  || AI_CONFIG.chatgpt,
+    novaConfig,
+    // Enable chatgpt-tab if the user explicitly selected it as their preferred
+    // provider, even when the build-time flag is off.
+    chatgptTab:        AI_CONFIG.chatgptTab || userKeys.preferredProvider === "chatgpt-tab",
+    preferredProvider: userKeys.preferredProvider,
+    preferredModel:    userKeys.preferredModel,
+  };
+}
 
 // --- Developer Experience & Security Warnings ---
 
-// 1. Warn if keys are missing during development for a better DX.
 if (import.meta.env.DEV) {
   const hasNova = !!AI_CONFIG.novaConfig;
   if (!AI_CONFIG.gemini && !AI_CONFIG.chatgpt && !hasNova) {
     console.warn(
       "[AI_CONFIG] No AI provider keys found in .env file. " +
-        "AI-based prediction features will be disabled. " +
-        "Please copy .env.example to .env.local and add your keys.",
+        "Users can provide keys via the Settings panel in the popup.",
     );
   }
-}
-
-// 2. Add a build-time warning for production builds to remind about security.
-if (import.meta.env.PROD && (AI_CONFIG.gemini || AI_CONFIG.chatgpt || AI_CONFIG.novaConfig)) {
-  console.warn(
-    "%c[SECURITY WARNING]",
-    "color: yellow; background: red; font-size: 14px; font-weight: bold;",
-    "AI API keys are bundled directly into the production build. This is a security risk. For a public extension, keys should be managed via a backend proxy or user-provided storage.",
-  );
 }

@@ -1,0 +1,437 @@
+.skills-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 4px 0;
+}
+
+.skills-header-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.skills-title {
+  font-size: 13px;
+  font-weight: 700;
+  margin: 0 0 2px;
+  color: var(--text-primary, #222);
+}
+
+.skills-hint {
+  font-size: 11px;
+  color: var(--text-secondary, #888);
+  margin: 0;
+  line-height: 1.4;
+}
+
+.skills-header-btns {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  align-items: flex-end;
+  flex-shrink: 0;
+}
+
+.skills-add-btn {
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  background: #7c3aed;
+  color: #fff;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.skills-add-btn:hover:not(:disabled) { background: #6d28d9; }
+.skills-add-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.skills-import-btn {
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  background: #fff;
+  color: #7c3aed;
+  border: 1.5px solid #7c3aed;
+  border-radius: 5px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.skills-import-btn:hover:not(:disabled) { background: #f3f0ff; }
+.skills-import-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.skill-import-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: #faf9ff;
+  border: 1.5px solid #c4b5fd;
+  border-radius: 7px;
+  padding: 12px;
+}
+
+.skill-import-textarea {
+  font-family: monospace;
+  font-size: 11px;
+  resize: vertical;
+}
+
+.skill-import-error {
+  font-size: 11px;
+  color: #dc2626;
+  background: #fef2f2;
+  border: 1px solid #fca5a5;
+  border-radius: 4px;
+  padding: 5px 8px;
+}
+
+.skill-import-ok {
+  font-size: 11px;
+  color: #16a34a;
+  background: #f0fdf4;
+  border: 1px solid #86efac;
+  border-radius: 4px;
+  padding: 5px 8px;
+}
+
+.skills-empty {
+  font-size: 12px;
+  color: #999;
+  background: #fafafa;
+  border: 1px dashed #ddd;
+  border-radius: 6px;
+  padding: 16px 12px;
+  text-align: center;
+}
+
+/* ── Skill card ── */
+
+.skill-card {
+  border: 1px solid #e5e7eb;
+  border-radius: 7px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  transition: border-color 0.2s;
+}
+
+.skill-card--active {
+  border-color: #c4b5fd;
+  background: #faf8ff;
+}
+
+.skill-card--off {
+  background: #fafafa;
+  opacity: 0.7;
+}
+
+.skill-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+/* Toggle switch */
+.skill-toggle-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.skill-toggle-input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.skill-toggle-track {
+  width: 28px;
+  height: 16px;
+  background: #d1d5db;
+  border-radius: 8px;
+  position: relative;
+  flex-shrink: 0;
+  transition: background 0.2s;
+}
+
+.skill-toggle-track::after {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.2s;
+}
+
+.skill-toggle-input:checked + .skill-toggle-track {
+  background: #7c3aed;
+}
+
+.skill-toggle-input:checked + .skill-toggle-track::after {
+  transform: translateX(12px);
+}
+
+.skill-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1f2937;
+}
+
+.skill-card-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.skill-edit-btn,
+.skill-del-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 2px 4px;
+  border-radius: 4px;
+  line-height: 1;
+  opacity: 0.6;
+  transition: opacity 0.15s, background 0.15s;
+}
+
+.skill-edit-btn:hover { opacity: 1; background: #ede9fe; }
+.skill-del-btn:hover  { opacity: 1; background: #fee2e2; }
+
+.skill-description {
+  font-size: 11px;
+  color: #6b7280;
+  margin: 0;
+  line-height: 1.4;
+  font-style: italic;
+}
+
+.skill-instructions {
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 10px;
+  color: #374151;
+  background: #f3f4f6;
+  border-radius: 5px;
+  padding: 6px 8px;
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 100px;
+  overflow-y: auto;
+  line-height: 1.55;
+}
+
+/* ── Inline skill form ── */
+
+.skill-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: #f9f9ff;
+  border: 1px solid #c4b5fd;
+  border-radius: 7px;
+  padding: 10px 12px;
+}
+
+.skill-form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.skill-form-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #5b21b6;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.skill-form-hint {
+  font-weight: 400;
+  color: #9ca3af;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.skill-form-input {
+  width: 100%;
+  padding: 5px 8px;
+  font-size: 12px;
+  border: 1px solid #c4b5fd;
+  border-radius: 5px;
+  background: #fff;
+  color: #1f2937;
+  box-sizing: border-box;
+  outline: none;
+}
+.skill-form-input:focus { border-color: #7c3aed; }
+
+.skill-form-textarea {
+  width: 100%;
+  padding: 5px 8px;
+  font-size: 11px;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  border: 1px solid #c4b5fd;
+  border-radius: 5px;
+  background: #fff;
+  color: #1f2937;
+  resize: vertical;
+  box-sizing: border-box;
+  outline: none;
+  line-height: 1.55;
+}
+.skill-form-textarea:focus { border-color: #7c3aed; }
+
+.skill-form-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.skill-form-enabled {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: #6b7280;
+  cursor: pointer;
+  user-select: none;
+}
+
+.skill-form-btns {
+  display: flex;
+  gap: 6px;
+}
+
+.skill-cancel-btn {
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  border: 1px solid #c4b5fd;
+  border-radius: 5px;
+  background: transparent;
+  color: #7c3aed;
+  cursor: pointer;
+}
+.skill-cancel-btn:hover { background: #ede9fe; }
+
+.skill-save-btn {
+  padding: 4px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  border: none;
+  border-radius: 5px;
+  background: #7c3aed;
+  color: #fff;
+  cursor: pointer;
+}
+.skill-save-btn:hover:not(:disabled) { background: #6d28d9; }
+.skill-save-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* ── Skill Tools section ── */
+
+.skill-tools-section {
+  border-top: 1px solid #e9d5ff;
+  padding-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.skill-tools-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.skill-tools-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #7c3aed;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.skill-tool-add-btn {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border: 1px solid #c4b5fd;
+  border-radius: 4px;
+  background: transparent;
+  color: #7c3aed;
+  cursor: pointer;
+}
+.skill-tool-add-btn:hover { background: #ede9fe; }
+
+.skill-tool-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 5px 8px;
+  background: #f5f3ff;
+  border: 1px solid #e9d5ff;
+  border-radius: 5px;
+}
+
+.skill-tool-info {
+  flex: 1;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.skill-tool-name {
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 11px;
+  font-weight: 700;
+  color: #5b21b6;
+  background: #ede9fe;
+  padding: 1px 5px;
+  border-radius: 3px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.skill-tool-desc {
+  font-size: 11px;
+  color: #6b7280;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.skill-tool-steps {
+  font-size: 10px;
+  color: #a78bfa;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.skill-tool-actions {
+  display: flex;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.skill-tool-form {
+  width: 100%;
+  box-sizing: border-box;
+}

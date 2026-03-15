@@ -3,7 +3,7 @@
  */
 
 import type { FormFieldInfo } from "@/types/ai";
-import { showFormDetectedBanner, hideFormDetectedBanner } from "./agentPanel";
+import { showFormDetectedBanner, hideFormDetectedBanner } from "../agent/agentPanel";
 import { generateAutofillData } from "./autofill";
 
 // ─── Form detection ───────────────────────────────────────────────────────────

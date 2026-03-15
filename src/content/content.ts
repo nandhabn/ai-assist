@@ -15,13 +15,13 @@
  */
 
 import { isAgentEnabled } from "@/utils/storage";
-import { setMissionPrompt, setAutofillTargetForm } from "./agentPanel";
+import { setMissionPrompt, setAutofillTargetForm } from "./agent/agentPanel";
 import { getGeminiCallStats, resetGeminiCallStats } from "@/utils/geminiProvider";
 import type { FormFieldInfo } from "@/types/ai";
 import { state } from "./state";
-import { getRLState } from "./rateLimit";
-import { initializeAgent, setAgentState, handleAgentStart, handleAgentContinue } from "./agentManager";
-import { checkAndShowFormBanner } from "./formDetect";
+import { getRLState } from "./ai/rateLimit";
+import { initializeAgent, setAgentState, handleAgentStart, handleAgentContinue } from "./agent/agentManager";
+import { checkAndShowFormBanner } from "./form/formDetect";
 
 // ─── Initialization ───────────────────────────────────────────────────────────
 

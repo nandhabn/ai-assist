@@ -4,6 +4,8 @@ import RecorderControl from "./components/RecorderControl";
 import FlowViewer from "./components/FlowViewer";
 import AIPanel from "./components/AIPanel";
 import Dashboard from "./components/Dashboard";
+import Settings from "./components/Settings";
+import Skills from "./components/Skills";
 
 export default function App() {
   const [view, setView] = React.useState("dashboard"); // dashboard, control, flow, ai
@@ -166,6 +168,18 @@ export default function App() {
         >
           🤖 AI
         </button>
+        <button
+          className={`nav-btn ${view === "settings" ? "active" : ""}`}
+          onClick={() => handleViewChange("settings")}
+        >
+          🔑 Keys
+        </button>
+        <button
+          className={`nav-btn ${view === "skills" ? "active" : ""}`}
+          onClick={() => handleViewChange("skills")}
+        >
+          🧠 Skills
+        </button>
       </nav>
 
       <main className="main">
@@ -186,6 +200,8 @@ export default function App() {
         )}
         {view === "flow" && <FlowViewer eventCount={eventCount} />}
         {view === "ai" && <AIPanel />}
+        {view === "settings" && <Settings />}
+        {view === "skills" && <Skills />}
       </main>
 
       <footer className="footer">

@@ -40,9 +40,6 @@ export function resetGeminiCallStats() {
   geminiStats.error = 0;
 }
 
-const GEMINI_API_ENDPOINT =
-  "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
-
 // ─── Safe JSON parser ─────────────────────────────────────────────────────────
 
 /**
@@ -125,12 +122,46 @@ function safeJsonParse<T>(raw: string): T {
  */
 export class GeminiProvider implements AIProvider {
   private apiKey: string;
+  private model: string;
 
-  constructor(apiKey: string) {
+  constructor(apiKey: string, model = "gemini-2.5-flash") {
     if (!apiKey) {
       throw new Error("GeminiProvider requires an API key.");
     }
     this.apiKey = apiKey;
+    this.model = model;
+  }
+
+  private get endpoint() {
+    return `https://generativelanguage.googleapis.com/v1beta/models/${this.model}:generateContent`;
+  }
+
+  /** True for Flash models where thinking can be fully disabled. */
+  private get isFlash(): boolean {
+    return !this.model.includes("pro");
+  }
+
+  /**
+   * Dynamically calculates maxOutputTokens for a Gemini call.
+   *
+   * Flash models: thinking is disabled via thinkingBudget:0, so only the JSON
+   * payload consumes output tokens — `jsonBase` tokens is plenty.
+   *
+   * Pro models: thinking always runs first and its tokens count against the same
+   * budget. We estimate the thinking overhead as ~12% of the input prompt length
+   * (empirical) and add that on top of the JSON base, capping at 8192.
+   *
+   * @param promptText  The fully-assembled prompt string being sent.
+   * @param jsonBase    Minimum tokens needed for the JSON response alone.
+   */
+  private outputTokenBudget(promptText: string, jsonBase: number): number {
+    const inputTokenEstimate = Math.ceil(promptText.length / 4);
+    const thinkingBuffer = this.isFlash
+      ? 0
+      : Math.min(4096, Math.ceil(inputTokenEstimate * 0.12));
+    const budget = jsonBase + thinkingBuffer;
+    aiLog(`[Gemini] outputTokenBudget | inputEst=${inputTokenEstimate} thinking=${thinkingBuffer} budget=${budget}`);
+    return Math.min(8192, budget);
   }
 
   async predictNextAction(context: CompactContext): Promise<AIPrediction> {
@@ -150,7 +181,7 @@ export class GeminiProvider implements AIProvider {
 
     try {
       const response = await fetch(
-        GEMINI_API_ENDPOINT,
+        this.endpoint,
         {
           method: "POST",
           headers: {
@@ -162,7 +193,8 @@ export class GeminiProvider implements AIProvider {
             generationConfig: {
               response_mime_type: "application/json",
               temperature: 0.2,
-              maxOutputTokens: 4096,
+              maxOutputTokens: this.outputTokenBudget(prompt, 1024),
+              ...(this.isFlash ? { thinkingConfig: { thinkingBudget: 0 } } : {}),
             },
           }),
         },
@@ -237,7 +269,7 @@ export class GeminiProvider implements AIProvider {
 
     try {
       const response = await fetch(
-        GEMINI_API_ENDPOINT,
+        this.endpoint,
         {
           method: "POST",
           headers: { "Content-Type": "application/json", "x-goog-api-key": this.apiKey },
@@ -246,7 +278,12 @@ export class GeminiProvider implements AIProvider {
             generationConfig: {
               response_mime_type: "application/json",
               temperature: 0.7,
-              maxOutputTokens: 2048,
+              // Form data output scales with field count; base 512 + 40 per field.
+              maxOutputTokens: this.outputTokenBudget(
+                prompt,
+                Math.max(512, 512 + fields.length * 40),
+              ),
+              ...(this.isFlash ? { thinkingConfig: { thinkingBudget: 0 } } : {}),
             },
           }),
         },
@@ -300,7 +337,7 @@ export class GeminiProvider implements AIProvider {
   /**
    * Agent tool-calling mode.
    * Sends the page context to Gemini and asks it to call one of the typed agent
-   * tools (navigate / click / type / scroll / done) with explicit parameters.
+   * tools (navigate / click / type / scroll / message / done) with explicit parameters.
    * This replaces the old label-prediction + fuzzy-match flow for agent mode.
    */
   async callAgentTool(context: CompactContext): Promise<AgentToolCall> {
@@ -312,7 +349,7 @@ export class GeminiProvider implements AIProvider {
     const prompt = buildAgentToolPrompt(context);
 
     try {
-      const response = await fetch(GEMINI_API_ENDPOINT, {
+      const response = await fetch(this.endpoint, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -323,11 +360,13 @@ export class GeminiProvider implements AIProvider {
           generationConfig: {
             response_mime_type: "application/json",
             temperature: 0.1,
-            maxOutputTokens: 2048,
-            // Disable thinking entirely for tool-call responses.
-            // Gemini 2.5 Flash thinking tokens count against maxOutputTokens,
-            // so reasoning chains eat the budget before the JSON is emitted.
-            thinkingConfig: { thinkingBudget: 0 },
+            // Agent tool JSON is always small (~150 tokens); base 512 is enough.
+            // Pro models always think first — outputTokenBudget adds proportional
+            // headroom so thinking doesn't crowd out the actual JSON response.
+            maxOutputTokens: this.outputTokenBudget(prompt, 512),
+            // Flash: disable thinking entirely so it doesn't eat the output budget.
+            // Pro: omit thinkingConfig — Pro ignores thinkingBudget:0 anyway.
+            ...(this.isFlash ? { thinkingConfig: { thinkingBudget: 0 } } : {}),
           },
         }),
       });
@@ -363,9 +402,11 @@ export class GeminiProvider implements AIProvider {
       if (!toolCall.tool) {
         throw new Error("callAgentTool: missing 'tool' field in response");
       }
-      const validTools = ["navigate", "click", "type", "scroll", "done"];
-      if (!validTools.includes(toolCall.tool)) {
-        throw new Error(`callAgentTool: unknown tool '${toolCall.tool}'`);
+      // Allow the built-in tools plus any skill-defined custom tool names
+      // (resolution happens later in prediction.ts; we only reject a truly missing tool field).
+      const builtInTools = ["navigate", "click", "type", "scroll", "done", "message"];
+      if (!builtInTools.includes(toolCall.tool) && !/^[a-z][a-z0-9_]{0,49}$/.test(toolCall.tool)) {
+        throw new Error(`callAgentTool: invalid tool name '${toolCall.tool}'`);
       }
       toolCall.params ??= {};
       toolCall.reasoning ??= "(no reasoning)";

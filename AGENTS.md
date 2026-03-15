@@ -54,6 +54,10 @@ AI Layer
    ├── AIProvider interface
    ├── GeminiProvider
    ├── ChatGPTProvider
+   ├── ChatGPTTabProvider (bridge via tab)
+   ├── NovaProvider
+   ├── BatchingProvider (wrapper)
+   ├── AIQueue (request queue)
    └── aiProviderFactory
 
 Config Layer
@@ -82,55 +86,81 @@ Config Layer
 ```
 chrome-extension-flow-recorder/
 ├── public/
-│   └── manifest.json          # Extension manifest (copied to dist)
+│   └── manifest.json               # Extension manifest (MV3)
 ├── src/
 │   ├── background/
-│   │   └── background.ts      # Service worker: messaging, storage, broadcast to tabs
+│   │   └── background.ts           # Service worker: messaging, storage, tab broadcast
+│   ├── config/
+│   │   ├── aiConfig.ts             # API key config from VITE_* env vars
+│   │   └── prompts.ts              # AI prompt templates
 │   ├── content/
-│   │   ├── content.ts         # Main content script: recording + agent orchestration
-│   │   ├── agentPanel.ts      # Floating “Flow Agent” UI (Shadow DOM)
-│   │   └── flyout.ts / flyout.css  # (if present) flyout UI
+│   │   ├── content.ts              # Main content script: recording + agent orchestration
+│   │   ├── chatgptBridge.ts        # Bridge script for ChatGPT tab provider
+│   │   ├── state.ts                # Content-script shared state
+│   │   ├── agent/
+│   │   │   ├── agentManager.ts     # Agent lifecycle and prediction scheduling
+│   │   │   ├── agentPanel.ts       # Floating AI panel (Shadow DOM)
+│   │   │   ├── execution.ts        # Execute predicted actions
+│   │   │   └── prediction.ts       # Prediction wiring in content context
+│   │   ├── ai/
+│   │   │   ├── providers.ts        # AI provider instantiation for content
+│   │   │   └── rateLimit.ts        # AI call rate limiting
+│   │   ├── form/
+│   │   │   ├── autofill.ts         # Form autofill assist
+│   │   │   └── formDetect.ts       # Active form detection
+│   │   └── ui/
+│   │       ├── flyout.ts           # Flyout overlay UI
+│   │       └── flyout.css
 │   ├── popup/
 │   │   ├── popup.html
-│   │   ├── main.tsx
-│   │   ├── App.tsx            # Tabs: Control | Flow | AI
+│   │   ├── main.tsx                # React entry point
+│   │   ├── App.tsx                 # Tabs: Control | Flow | AI
 │   │   ├── App.css
 │   │   ├── components/
-│   │   │   ├── RecorderControl.tsx  # Start/Stop/Clear, Agent toggle
-│   │   │   ├── FlowViewer.tsx       # List/export recorded events
-│   │   │   └── AIPanel.tsx          # AI analysis, prompts, export
-│   │   └── styles/
-│   ├── utils/
-│   │   ├── storage.ts         # chrome.storage.local wrapper (keys, get/set)
-│   │   ├── selectorGenerator.ts    # CSS & XPath for elements
-│   │   ├── elementAnalyzer.ts       # ElementMetadata, form helpers
-│   │   ├── navigationDetector.ts    # Route/URL helpers
-│   │   ├── apiInterceptor.ts        # (if used) fetch/XHR interception
-│   │   ├── flowAnalyzer.ts          # analyzeEventFlow, detectForms, extractAPIInfo, identifyTestPoints
-│   │   ├── aiFormatter.ts           # prepareFlowData, FlowDataPackage, markdown/JSON export
-│   │   ├── contextBuilder.ts        # Full PageContext builder (forms, visible actions, intent)
-│   │   ├── predictionEngine.ts      # generatePredictions, maybeUseAI, fillFormFields
-│   │   ├── aiProviderFactory.ts     # createAIProvider(providerName, apiKey)
-│   │   ├── chatgptProvider.ts       # ChatGPTProvider (OpenAI)
-│   │   └── geminiProvider.ts        # GeminiProvider
-│   ├── config/
-│   │   └── aiConfig.ts        # VITE_GEMINI_API_KEY, VITE_OPENAI_API_KEY, dev/prod warnings
-│   └── types/
-│       ├── index.ts          # RecordedEvent, FlowNode/Edge/Graph, ACTION_TYPES, ElementMetadata, etc.
-│       └── ai.ts             # AIProvider, CompactContext, AIPrediction
-├── vite.config.ts            # Popup + background build; copies popup.html & manifest to dist
-├── vite.config.content.ts     # Content script build (content.js); does not clear dist
-├── .env / .env.example        # API keys (VITE_*); never commit .env
-└── dist/                      # Output: popup.html, popup.js, background.js, content.js, manifest.json
+│   │   │   ├── RecorderControl.tsx # Start/Stop/Clear, Agent toggle
+│   │   │   ├── FlowViewer.tsx      # Recorded event list and export
+│   │   │   ├── AIPanel.tsx         # AI analysis, prompts, export
+│   │   │   ├── Dashboard.tsx       # Summary dashboard
+│   │   │   └── MissionBar.tsx / .css
+│   │   └── styles/                 # Component CSS
+│   ├── types/
+│   │   ├── index.ts                # RecordedEvent, FlowNode/Edge, ACTION_TYPES, ElementMetadata
+│   │   └── ai.ts                   # AIProvider, CompactContext, AIPrediction
+│   ├── ui/
+│   │   └── agentPanel.ts           # Panel render helpers
+│   └── utils/
+│       ├── storage.ts              # chrome.storage.local wrapper
+│       ├── selectorGenerator.ts    # CSS selector & XPath generation
+│       ├── elementAnalyzer.ts      # ElementMetadata, form helpers
+│       ├── navigationDetector.ts   # SPA route-change detection
+│       ├── apiInterceptor.ts       # Fetch/XHR interception
+│       ├── flowAnalyzer.ts         # analyzeEventFlow, detectForms, identifyTestPoints
+│       ├── aiFormatter.ts          # prepareFlowData, JSON/Markdown export
+│       ├── contextBuilder.ts       # Full PageContext builder
+│       ├── predictionEngine.ts     # generatePredictions, maybeUseAI, fillFormFields
+│       ├── aiProviderFactory.ts    # createAIProvider(name, apiKey)
+│       ├── geminiProvider.ts       # GeminiProvider
+│       ├── chatgptProvider.ts      # ChatGPTProvider (OpenAI)
+│       ├── chatgptTabProvider.ts   # ChatGPT via tab bridge
+│       ├── novaProvider.ts         # Nova provider
+│       ├── batchingProvider.ts     # Batching wrapper
+│       ├── aiQueue.ts              # AI request queue
+│       └── agentExecutor.ts        # Agent action executor
+├── vite.config.ts                  # Popup + background build; copies popup.html & manifest to dist
+├── vite.config.content.ts          # Content script build (does not clear dist)
+├── .env / .env.example             # API keys (VITE_*); never commit .env
+└── dist/                           # Output: popup.html, popup.js, background.js, content.js, manifest.json
 ```
-
 ---
 
 ## 5. Build & Load
 
-- **`npm run build`**: `vite build` then `vite build --config vite.config.content.ts`. Produces `dist/` with popup, background, content, and manifest.
+- **`npm run build`**: Two Vite builds:
+  - `vite build` — popup (`popup.html`, `popup.js`) and background service worker (`background.js`).
+  - `vite build --config vite.config.content.ts` — content script (`content.js`) and ChatGPT bridge (`chatgptBridge.js`).
 - **`npm run dev`**: Vite dev + content script watch (two processes).
-- **Load in Chrome**: `chrome://extensions` → Load unpacked → select `dist/`.
+- **`npm run check`**: `tsc -b` type-check.
+- **Load in Chrome**: `chrome://extensions` → Enable Developer mode → Load unpacked → select `dist/`.
 - Content script is injected on `<all_urls>`, `document_end`, `all_frames: true`.
 
 ---
@@ -153,17 +183,17 @@ chrome-extension-flow-recorder/
 
 Handled in `background/background.ts`:
 
-| Action                                                                      | Source             | Behavior                                                                     |
-| --------------------------------------------------------------------------- | ------------------ | ---------------------------------------------------------------------------- |
-| `START_RECORDING`                                                           | Popup              | Set storage, broadcast to all tabs                                           |
-| `STOP_RECORDING`                                                            | Popup              | Set storage, broadcast to all tabs                                           |
-| `GET_EVENTS`                                                                | Popup              | Return `{ events }` from storage                                             |
-| `CLEAR_EVENTS`                                                              | Popup              | Clear events in storage                                                      |
-| `GET_SESSION_ID`                                                            | Popup              | Return current session ID                                                    |
-| `SAVE_SESSION`                                                              | Popup              | Append to sessions, clear events                                             |
-| `GENERATE_AI_SCRIPT`                                                        | Popup              | Uses `prepareFlowData`; currently returns mocked AI result (no real backend) |
-| `EVENT_RECORDED`                                                            | Content            | Keeps service worker alive; no processing                                    |
-| (Content also receives) `START_RECORDING`, `STOP_RECORDING`, `TOGGLE_AGENT` | Background / Popup | Content script starts/stops recording or enables/disables agent              |
+| Action            | Sender  | Behavior                                                     |
+| ----------------- | ------- | ------------------------------------------------------------ |
+| `START_RECORDING` | Popup   | Persists state; broadcasts to all tabs                       |
+| `STOP_RECORDING`  | Popup   | Persists state; broadcasts to all tabs                       |
+| `GET_EVENTS`      | Popup   | Returns stored events                                        |
+| `CLEAR_EVENTS`    | Popup   | Clears events from storage                                   |
+| `GET_SESSION_ID`  | Popup   | Returns current session ID                                   |
+| `SAVE_SESSION`    | Popup   | Appends current events as a saved session; clears events     |
+| `GENERATE_AI_SCRIPT` | Popup | Uses `prepareFlowData`; currently returns mocked result     |
+| `TOGGLE_AGENT`    | Popup   | Enables/disables the agent panel on all tabs                 |
+| `EVENT_RECORDED`  | Content | Keeps service worker alive; no processing                    |
 
 Popup and content script talk to the background via `chrome.runtime.sendMessage`; background uses `chrome.tabs.sendMessage` to notify tabs.
 
@@ -182,7 +212,15 @@ All are in `chrome.storage.local`.
 
 ---
 
-## 9. Core Module: Content Script (`content.ts`)
+## 9. Core Module: Content Script (`content/content.ts`)
+
+**Subdirectory layout:**
+- `content/agent/` — `agentManager.ts` (lifecycle/scheduling), `agentPanel.ts` (Shadow DOM UI), `execution.ts` (run predicted action), `prediction.ts` (prediction wiring)
+- `content/ai/` — `providers.ts` (instantiate AI providers), `rateLimit.ts` (rate limiting)
+- `content/form/` — `autofill.ts` (form fill assist), `formDetect.ts` (active form detection)
+- `content/ui/` — `flyout.ts` / `flyout.css` (flyout overlay)
+- `content/state.ts` — shared content-script state
+- `content/chatgptBridge.ts` — bridge script for ChatGPT tab provider
 
 **Responsibilities:**
 
@@ -295,7 +333,7 @@ Note: `content.ts` builds a minimal inline `PageContext`; `contextBuilder.ts` ca
 
 ---
 
-## 14. Agent Panel (`content/agentPanel.ts`)
+## 14. Agent Panel (`content/agent/agentPanel.ts`)
 
 **Isolation:** Shadow DOM host element; styles via `adoptedStyleSheets`; all UI encapsulated; no global CSS pollution. Panel elements excluded from prediction via `[data-flow-recorder]`.
 
@@ -338,13 +376,15 @@ The extension behaves as an **intelligent co-pilot** predicting next UI actions 
 
 ## 17. Next Potential Upgrades
 
-- Move AI calls to background service worker (security).
-- Link preview heading prefetch.
-- Adaptive weight tuning (reinforcement).
+- Move AI calls to background service worker (security / key isolation).
+- Adaptive weight tuning via reinforcement learning.
 - Intent drift detection.
+- Runtime provider switching in the popup UI.
+- Direct test file export (Cypress / Playwright).
+- Multi-tab recording.
 - Prediction heatmap overlay.
+- Link preview heading prefetch.
 - Smart AI form autofill inference.
-- Runtime provider switching UI.
 
 ---
 
@@ -405,16 +445,19 @@ Evolve into a **production-ready intelligent web co-pilot**: stable and secure a
 
 ## 24. Files to Touch for Common Tasks
 
-| Task                                        | Files                                                                                          |
-| ------------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| Change recording behavior / what’s captured | `content/content.ts`, `utils/elementAnalyzer.ts`                                               |
-| Change prediction scoring                   | `utils/predictionEngine.ts`                                                                    |
-| Change or add AI provider                   | `utils/aiProviderFactory.ts`, `utils/geminiProvider.ts` or `chatgptProvider.ts`, `types/ai.ts` |
-| Change agent UI                             | `content/agentPanel.ts`                                                                        |
-| Change popup UI                             | `src/popup/**`                                                                                 |
-| Change flow analysis / AI export            | `utils/flowAnalyzer.ts`, `utils/aiFormatter.ts`                                                |
-| Add message or storage                      | `background/background.ts`, `utils/storage.ts`                                                 |
-| Manifest / permissions                      | `public/manifest.json`                                                                         |
-| Build / entry points                        | `vite.config.ts`, `vite.config.content.ts`                                                     |
-
+| Task                                        | Files                                                                                                          |
+| ------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
+| Change recording behavior / what's captured | `content/content.ts`, `utils/elementAnalyzer.ts`                                                               |
+| Change prediction scoring                   | `utils/predictionEngine.ts`                                                                                    |
+| Change or add AI provider                   | `utils/aiProviderFactory.ts`, `utils/geminiProvider.ts` or `chatgptProvider.ts`, `types/ai.ts`                 |
+| Change agent lifecycle / scheduling         | `content/agent/agentManager.ts`                                                                                |
+| Change agent UI                             | `content/agent/agentPanel.ts`, `ui/agentPanel.ts`                                                              |
+| Change prediction execution                 | `content/agent/execution.ts`, `utils/agentExecutor.ts`                                                         |
+| Change form detection / autofill            | `content/form/formDetect.ts`, `content/form/autofill.ts`                                                       |
+| Change AI rate limiting                     | `content/ai/rateLimit.ts`, `utils/aiQueue.ts`                                                                  |
+| Change popup UI                             | `src/popup/**`                                                                                                 |
+| Change flow analysis / AI export            | `utils/flowAnalyzer.ts`, `utils/aiFormatter.ts`                                                                |
+| Add message or storage                      | `background/background.ts`, `utils/storage.ts`                                                                 |
+| Manifest / permissions                      | `public/manifest.json`                                                                                         |
+| Build / entry points                        | `vite.config.ts`, `vite.config.content.ts`                                                                     |
 Use this context to make consistent, localized changes and to avoid breaking the contract between content script, background, and popup.

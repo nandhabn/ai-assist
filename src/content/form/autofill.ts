@@ -3,9 +3,9 @@
  */
 
 import type { FormFieldInfo } from "@/types/ai";
-import { state } from "./state";
-import { aiLog, canMakeAICall, recordAICall, AI_MAX_CALLS_PER_WINDOW, AI_MIN_INTERVAL, getRLState } from "./rateLimit";
-import { getAIProvider } from "./providers";
+import { state } from "../state";
+import { aiLog, canMakeAICall, recordAICall, AI_MAX_CALLS_PER_WINDOW, AI_MIN_INTERVAL, getRLState } from "../ai/rateLimit";
+import { getAIProvider } from "../ai/providers";
 
 // ─── AI-powered generator ─────────────────────────────────────────────────────
 
@@ -37,7 +37,7 @@ export async function generateAutofillData(
   }
 
   if (state.aiProvider === undefined) {
-    state.aiProvider = getAIProvider();
+    state.aiProvider = await getAIProvider();
   }
 
   if (state.aiProvider && canMakeAICall()) {

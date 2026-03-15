@@ -5,7 +5,31 @@ const STORAGE_KEYS = {
   SESSIONS: "flowRecorder_sessions",
   LAST_USER_ACTION: "flowRecorder_lastUserAction",
   AGENT_ENABLED: "flowRecorder_agentEnabled",
+  USER_KEYS: "flowRecorder_userKeys",
 } as const;
+
+export type ProviderName = "gemini" | "chatgpt" | "nova" | "chatgpt-tab";
+
+export interface UserKeys {
+  gemini?: string;
+  openai?: string;
+  awsAccessKey?: string;
+  awsSecretKey?: string;
+  awsRegion?: string;
+  /** Which provider to use first in the chain */
+  preferredProvider?: ProviderName;
+  /** Model override for the preferred provider */
+  preferredModel?: string;
+}
+
+export async function getUserKeys(): Promise<UserKeys> {
+  const data = await chrome.storage.local.get([STORAGE_KEYS.USER_KEYS]);
+  return data[STORAGE_KEYS.USER_KEYS] || {};
+}
+
+export async function saveUserKeys(keys: UserKeys): Promise<void> {
+  await chrome.storage.local.set({ [STORAGE_KEYS.USER_KEYS]: keys });
+}
 
 export async function getOrCreateSessionId(): Promise<string> {
   const data = await chrome.storage.local.get([STORAGE_KEYS.SESSION_ID]);
