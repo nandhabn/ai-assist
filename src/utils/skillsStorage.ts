@@ -35,15 +35,34 @@ export interface SkillToolStep {
 
 /**
  * A named macro the AI can call as if it were a built-in tool.
- * When the AI picks this tool, its steps execute sequentially.
+ * Runs either a step sequence OR a JS code snippet (mutually exclusive).
+ *
+ * - Steps mode: set `steps` — executes built-in tool primitives in order.
+ * - Code mode:  set `code`  — executes arbitrary JS in the content-script context.
+ *   The function body receives a `params` argument (AgentToolParams) and must
+ *   return (or resolve to) `{ success: boolean; failureReason?: string }`.
  */
 export interface SkillTool {
   /** Tool name the AI uses in its JSON output (lowercase, underscores, no spaces). */
   name: string;
   /** One-line description exposed to the AI explaining when to use this tool. */
   description: string;
-  /** Ordered sequence of built-in steps to run when invoked. */
+  /**
+   * Steps mode: ordered sequence of built-in tool primitives to run.
+   * Ignored when `code` is set.
+   */
   steps: SkillToolStep[];
+  /**
+   * Code mode: JavaScript function body executed in the content-script context.
+   * When present, `steps` is ignored. Receives `params` (AgentToolParams).
+   * Example: `document.querySelector('.banner-close')?.click(); return { success: true };`
+   */
+  code?: string;
+  /**
+   * Optional hint to the AI about which params to pass.
+   * Example: "label: CSS selector of the button to dismiss"
+   */
+  paramHint?: string;
 }
 
 /**

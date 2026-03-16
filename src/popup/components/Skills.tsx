@@ -11,13 +11,45 @@ import {
 } from "@/utils/skillsStorage";
 import "../styles/Skills.css";
 
+const SKILL_GENERATION_PROMPT = `You are a web-automation skill generator for the AI Flow Agent Chrome extension.
+Generate a skill JSON object that I can import directly into the extension.
+
+The skill JSON must follow this exact schema:
+{
+  "name": "<short human name, e.g. Login Flow>",
+  "description": "<one sentence — when should the AI apply this skill?>",
+  "instructions": "<multi-line step-by-step instructions injected into the AI prompt>",
+  "tools": [
+    {
+      "name": "<snake_case_tool_name>",
+      "description": "<one sentence — when to call this tool>",
+      "paramHint": "<optional: tell the AI which params to pass>",
+
+      // OPTION A — Steps mode (array of built-in steps):
+      "steps": "click: Label\\ntype: Label | text\\nnavigate: https://...\\nscroll: down\\nmessage: text\\ndelay: 2000",
+
+      // OPTION B — JS Code mode (runs in content-script context, full DOM access):
+      "code": "const el = document.querySelector(params.label);\\nif (!el) return { success: false, failureReason: 'not found' };\\nel.click();\\nreturn { success: true };"
+    }
+  ]
+}
+
+Rules:
+- Output ONLY the raw JSON object. No markdown fences, no explanation.
+- Each tool uses EITHER "steps" OR "code", not both.
+- "steps" is a single newline-delimited string (use \\n between steps).
+- "code" is a JS function body that receives \`params\` (AgentToolParams) and must return \`{ success, failureReason? }\`.
+- Tools array may be empty ([]) if the skill only provides instructions.
+- The "instructions" field should be actionable, concise, and written in the imperative.
+
+My skill request: `;
 const EMPTY_FORM = {
   name: "",
   description: "",
   instructions: "",
   enabled: true,
 };
-const EMPTY_TOOL = { name: "", description: "", stepsRaw: "" };
+const EMPTY_TOOL = { name: "", description: "", paramHint: "", mode: "steps" as "steps" | "code", stepsRaw: "", codeRaw: "" };
 
 export default function Skills() {
   const [skills, setSkills] = React.useState<AgentSkill[]>([]);
@@ -29,6 +61,7 @@ export default function Skills() {
   const [importJson, setImportJson] = React.useState("");
   const [importError, setImportError] = React.useState<string | null>(null);
   const [importOk, setImportOk] = React.useState(false);
+  const [copiedPrompt, setCopiedPrompt] = React.useState(false);
   // Tool editing state — keyed by skillId+toolIndex or "new"
   const [toolEditing, setToolEditing] = React.useState<{
     skillId: string;
@@ -124,6 +157,13 @@ export default function Skills() {
     setImportError(null);
   };
 
+  const handleCopyPrompt = () => {
+    navigator.clipboard.writeText(SKILL_GENERATION_PROMPT).then(() => {
+      setCopiedPrompt(true);
+      setTimeout(() => setCopiedPrompt(false), 2000);
+    });
+  };
+
   const handleImport = async () => {
     setImportError(null);
     let parsed: any;
@@ -148,7 +188,9 @@ export default function Skills() {
         tools.push({
           name: String(t.name).trim().replace(/\s+/g, "_").toLowerCase(),
           description: String(t.description ?? "").trim(),
+          paramHint: t.paramHint ? String(t.paramHint).trim() : undefined,
           steps: typeof t.steps === "string" ? parseToolSteps(t.steps) : [],
+          code: t.code ? String(t.code) : undefined,
         });
       }
     }
@@ -182,7 +224,10 @@ export default function Skills() {
     setToolForm({
       name: tool.name,
       description: tool.description,
-      stepsRaw: serializeToolSteps(tool.steps),
+      paramHint: tool.paramHint ?? "",
+      mode: tool.code ? "code" : "steps",
+      stepsRaw: serializeToolSteps(tool.steps ?? []),
+      codeRaw: tool.code ?? "",
     });
   };
 
@@ -199,7 +244,9 @@ export default function Skills() {
     const newTool: SkillTool = {
       name: toolForm.name.trim().replace(/\s+/g, "_").toLowerCase(),
       description: toolForm.description.trim(),
-      steps: parseToolSteps(toolForm.stepsRaw),
+      paramHint: toolForm.paramHint.trim() || undefined,
+      steps: toolForm.mode === "steps" ? parseToolSteps(toolForm.stepsRaw) : [],
+      code: toolForm.mode === "code" ? toolForm.codeRaw : undefined,
     };
     const tools = [...(skill.tools ?? [])];
     if (toolEditing.idx === "new") {
@@ -234,6 +281,13 @@ export default function Skills() {
           </p>
         </div>
         <div className="skills-header-btns">
+          <button
+            className="skills-prompt-btn"
+            onClick={handleCopyPrompt}
+            title="Copy a prompt you can paste into ChatGPT / Gemini to generate skill JSON"
+          >
+            {copiedPrompt ? "✓ Copied!" : "🪄 Copy AI Prompt"}
+          </button>
           <button
             className="skills-import-btn"
             onClick={openImport}
@@ -387,8 +441,7 @@ export default function Skills() {
                             {tool.description}
                           </span>
                           <span className="skill-tool-steps">
-                            {tool.steps.length} step
-                            {tool.steps.length !== 1 ? "s" : ""}
+                            {tool.code ? "JS code" : `${(tool.steps ?? []).length} step${(tool.steps ?? []).length !== 1 ? "s" : ""}`}
                           </span>
                         </div>
                         <div className="skill-tool-actions">
@@ -530,7 +583,15 @@ interface ToolFormProps {
   onCancel: () => void;
 }
 
+const CODE_PLACEHOLDER =
+  "// 'params' is available: params.label, params.text, params.fields, etc.\n// Return { success: true } or { success: false, failureReason: 'why' }.\n// async/await is supported.\n\nconst el = document.querySelector(params.label);\nif (!el) return { success: false, failureReason: 'Not found: ' + params.label };\nel.click();\nreturn { success: true };";
+
 function ToolForm({ form, onChange, onSave, onCancel }: ToolFormProps) {
+  const isCode = form.mode === "code";
+  const canSave =
+    !!form.name.trim() &&
+    (isCode ? !!form.codeRaw.trim() : !!form.stepsRaw.trim());
+
   return (
     <div className="skill-form skill-tool-form">
       <div className="skill-form-group">
@@ -558,22 +619,80 @@ function ToolForm({ form, onChange, onSave, onCancel }: ToolFormProps) {
       </div>
       <div className="skill-form-group">
         <label className="skill-form-label">
-          Steps{" "}
-          <span className="skill-form-hint">
-            one per line: click: Label · type: Label | text · navigate: url ·
-            scroll: down · message: text
-          </span>
+          Param hint{" "}
+          <span className="skill-form-hint">(optional — tell the AI what to pass)</span>
         </label>
-        <textarea
-          className="skill-form-textarea"
-          rows={5}
-          placeholder={
-            "click: Send OTP\nmessage: Waiting for OTP — please enter it manually\ntype: OTP | 000000"
-          }
-          value={form.stepsRaw}
-          onChange={(e) => onChange("stepsRaw", e.target.value)}
+        <input
+          className="skill-form-input"
+          placeholder="e.g. label: CSS selector of the element"
+          value={form.paramHint}
+          onChange={(e) => onChange("paramHint", e.target.value)}
         />
       </div>
+
+      {/* Mode toggle */}
+      <div className="skill-tool-mode-row">
+        <button
+          className={`skill-tool-mode-btn${!isCode ? " active" : ""}`}
+          type="button"
+          onClick={() => onChange("mode", "steps")}
+        >
+          📋 Steps
+        </button>
+        <button
+          className={`skill-tool-mode-btn${isCode ? " active" : ""}`}
+          type="button"
+          onClick={() => onChange("mode", "code")}
+        >
+          ⚡ JS Code
+        </button>
+      </div>
+
+      {!isCode ? (
+        <div className="skill-form-group">
+          <label className="skill-form-label">
+            Steps{" "}
+            <span className="skill-form-hint">
+              one per line: click: Label · type: Label | text · navigate: url ·
+              scroll: down · message: text
+            </span>
+          </label>
+          <textarea
+            className="skill-form-textarea"
+            rows={5}
+            placeholder={
+              "click: Send OTP\nmessage: Waiting for OTP — please enter it manually\ntype: OTP | 000000"
+            }
+            value={form.stepsRaw}
+            onChange={(e) => onChange("stepsRaw", e.target.value)}
+          />
+        </div>
+      ) : (
+        <div className="skill-form-group">
+          <label className="skill-form-label">
+            JavaScript code{" "}
+            <span className="skill-form-hint">
+              receives <code>params</code>, return{" "}
+              {"{ success, failureReason? }"}
+            </span>
+          </label>
+          <div className="skill-tool-code-warning">
+            ⚠ Runs in the page context (same as browser console). Only add
+            code you wrote yourself.
+          </div>
+          <textarea
+            className="skill-tool-code-editor"
+            rows={8}
+            placeholder={CODE_PLACEHOLDER}
+            value={form.codeRaw}
+            onChange={(e) => onChange("codeRaw", e.target.value)}
+            spellCheck={false}
+            autoCorrect="off"
+            autoCapitalize="off"
+          />
+        </div>
+      )}
+
       <div className="skill-form-row">
         <div />
         <div className="skill-form-btns">
@@ -583,7 +702,7 @@ function ToolForm({ form, onChange, onSave, onCancel }: ToolFormProps) {
           <button
             className="skill-save-btn"
             onClick={onSave}
-            disabled={!form.name.trim() || !form.stepsRaw.trim()}
+            disabled={!canSave}
           >
             Save Tool
           </button>

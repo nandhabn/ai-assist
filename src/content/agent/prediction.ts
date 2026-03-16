@@ -18,6 +18,8 @@ import { state } from "../state";
 import { getAIProvider } from "../ai/providers";
 import { buildAgentToolPrompt } from "@/config/prompts";
 import { getEnabledSkills } from "@/utils/skillsStorage";
+import { syncSkillsToRegistry, toolRegistry } from "./tools";
+import { clearSteeringHintDisplay } from "./agentPanel";
 
 // ─── Pre-action snapshot (for post-action DOM diff) ────────────────────────────
 
@@ -139,7 +141,7 @@ export function buildPageElements(): AgentPageElement[] {
     s
       .replace(/[\u20a8\u20b9$£€¥].*/, "") // cut at any currency symbol
       .replace(/\d{4,}[\d,]*(\.\d+)?.*/, "") // cut at 4+ digit price runs
-      .replace(/\s{2,}/g, " ")
+      .replace(/\s+/g, " ") // collapse ALL whitespace incl. single \n between words
       .trim()
       .slice(0, 60);
 
@@ -216,17 +218,26 @@ export function buildPageElements(): AgentPageElement[] {
     }
   });
 
-  // Text inputs — label priority: associated <label> → aria-label → placeholder → name
+  // Text inputs — label priority: associated <label> → aria-labelledby → aria-label → placeholder → name
   document
     .querySelectorAll<HTMLInputElement>(
       "input:not([type=hidden]):not([type=submit]):not([type=button])",
     )
     .forEach((el) => {
       try {
-        const labelFromDom = el.id
-          ? (document
-              .querySelector<HTMLLabelElement>(`label[for="${el.id}"]`)
-              ?.textContent?.trim() ?? "")
+        // Prefer firstTextNode so we get "iPhone 17 Pro" rather than the full
+        // label textContent which includes nested price/footnote spans.
+        const labelEl =
+          (el.id
+            ? document.querySelector<HTMLLabelElement>(`label[for="${el.id}"]`)
+            : null) ??
+          (el.getAttribute("aria-labelledby")
+            ? (document.getElementById(
+                el.getAttribute("aria-labelledby")!,
+              ) as HTMLLabelElement | null)
+            : null);
+        const labelFromDom = labelEl
+          ? cleanLabel(firstTextNode(labelEl) || labelEl.textContent?.trim() || "")
           : "";
         const label = String(
           labelFromDom ||
@@ -477,8 +488,17 @@ export async function predictForAgent(): Promise<PredictionResult> {
     }
   }
 
-  // Load enabled skills and attach to context so the prompt can inject them
-  context.skills = await getEnabledSkills();
+  // Load enabled skills, sync them into the tool registry, then attach to context
+  const enabledSkills = await getEnabledSkills();
+  syncSkillsToRegistry(enabledSkills);
+  context.skills = enabledSkills;
+
+  // Attach and clear any one-shot steering hint the user typed in the panel
+  if (state.currentSteeringHint) {
+    context.steeringHint = state.currentSteeringHint;
+    state.currentSteeringHint = null;
+    clearSteeringHintDisplay();
+  }
 
   const prompt = buildAgentToolPrompt(context);
 
@@ -490,26 +510,12 @@ export async function predictForAgent(): Promise<PredictionResult> {
     throw err;
   }
 
-  // If the AI chose a skill tool, resolve it to its step sequence so
-  // executeAgentToolCall can run them without knowing about skills.
-  if (
-    toolCall.tool &&
-    !(
-      ["navigate", "click", "type", "scroll", "message", "done"] as string[]
-    ).includes(toolCall.tool)
-  ) {
-    const allSkillTools = (context.skills ?? []).flatMap((s) => s.tools ?? []);
-    const skillTool = allSkillTools.find((t) => t.name === toolCall.tool);
-    if (skillTool) {
-      toolCall.skillSteps = skillTool.steps;
-      console.log(
-        `[Agent] Resolved skill tool "${toolCall.tool}" → ${skillTool.steps.length} steps`,
-      );
-    } else {
-      console.warn(
-        `[Agent] Unknown tool "${toolCall.tool}" — not a built-in and not found in any skill`,
-      );
-    }
+  // Warn when the AI returns a tool name that isn't registered — covers both
+  // unknown built-ins and skill tools that may have been disabled since start.
+  if (toolCall.tool && !toolRegistry.has(toolCall.tool)) {
+    console.warn(
+      `[Agent] Unknown tool "${toolCall.tool}" — not registered as a built-in or skill tool`,
+    );
   }
 
   // Store context for agentManager to record the full turn after execution

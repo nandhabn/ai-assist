@@ -36,4 +36,7 @@ export const state = {
 
   // Set by executeForAgent when an action fails; consumed by buildPostActionObservation
   lastActionFailure: null as string | null,
+
+  // One-shot steering hint typed by the user in the panel; consumed by the next predictForAgent call
+  currentSteeringHint: null as string | null,
 };

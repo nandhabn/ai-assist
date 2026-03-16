@@ -73,6 +73,7 @@ export interface AIProvider {
  * - type      Focus an input/textarea by label and type text into it.
  * - scroll    Scroll the viewport up or down to reveal more content.
  * - done      Signal that the mission is complete (success or unrecoverable failure).
+ * - fill_form  Fill multiple form fields at once from a label→value map.
  */
 export type AgentToolName =
   | "navigate"
@@ -80,7 +81,8 @@ export type AgentToolName =
   | "type"
   | "scroll"
   | "done"
-  | "message";
+  | "message"
+  | "fill_form";
 
 /**
  * Parameters for each tool.  Only the relevant keys need to be set.
@@ -100,6 +102,12 @@ export interface AgentToolParams {
   message?: string;
   /** delay: milliseconds to wait. */
   ms?: number;
+  /**
+   * fill_form: map of visible field label (or aria-label / placeholder / name)
+   * to the value that should be typed or selected into that field.
+   * Example: { "Email": "user@example.com", "Country": "United States" }
+   */
+  fields?: Record<string, string>;
 }
 
 /**
@@ -271,6 +279,12 @@ export interface CompactContext {
    * Populated by prediction.ts before each callAgentTool() call.
    */
   postActionObservation?: PostActionObservation;
+  /**
+   * An optional one-shot steering message typed by the user mid-session.
+   * Injected into the very next AI prompt then automatically cleared so
+   * subsequent steps return to normal mission-driven behaviour.
+   */
+  steeringHint?: string;
 }
 
 /**

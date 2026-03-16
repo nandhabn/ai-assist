@@ -606,6 +606,101 @@ const panelCss = `
   }
   .panel-container.dark .agent-plan-header { color: #a78bfa; }
   .panel-container.dark .autofill-error-badge { background: #450a0a; border-color: #b91c1c; color: #fca5a5; }
+
+  /* ---- Steering Input ---- */
+  #steering-section {
+    display: none;
+    border-top: 1px solid #e0e0e0;
+    padding: 7px 10px 8px;
+  }
+  #steering-section.visible { display: block; }
+  .steering-label {
+    font-size: 11px;
+    font-weight: 600;
+    color: #374151;
+    margin-bottom: 5px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .steering-hint-badge {
+    display: none;
+    font-size: 10px;
+    font-weight: 600;
+    color: #fff;
+    background: #f59e0b;
+    padding: 1px 6px;
+    border-radius: 10px;
+    margin-left: auto;
+  }
+  .steering-hint-badge.visible { display: inline-block; }
+  .steering-row {
+    display: flex;
+    gap: 5px;
+    align-items: flex-end;
+  }
+  .steering-input {
+    flex: 1;
+    resize: none;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    padding: 5px 8px;
+    font-size: 12px;
+    font-family: inherit;
+    color: #1f2937;
+    background: #fff;
+    line-height: 1.4;
+    outline: none;
+    box-sizing: border-box;
+    max-height: 80px;
+    overflow-y: auto;
+  }
+  .steering-input::placeholder { color: #9ca3af; font-style: italic; }
+  .steering-input:focus { border-color: #f59e0b; box-shadow: 0 0 0 2px rgba(245,158,11,0.2); }
+  .steering-submit-btn {
+    font-size: 11px;
+    font-weight: 700;
+    padding: 5px 10px;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    background: #f59e0b;
+    color: #fff;
+    white-space: nowrap;
+    flex-shrink: 0;
+    align-self: flex-end;
+  }
+  .steering-submit-btn:hover { background: #d97706; }
+  .steering-submit-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+  .steering-queued-row {
+    display: none;
+    margin-top: 5px;
+    padding: 4px 7px;
+    background: #fffbeb;
+    border: 1px solid #fde68a;
+    border-radius: 5px;
+    font-size: 11px;
+    color: #92400e;
+    align-items: center;
+    gap: 5px;
+  }
+  .steering-queued-row.visible { display: flex; }
+  .steering-queued-text { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .steering-clear-btn { background: none; border: none; cursor: pointer; font-size: 11px; color: #92400e; padding: 0 2px; flex-shrink: 0; }
+  .steering-clear-btn:hover { color: #78350f; }
+
+  /* dark theme overrides for steering */
+  .panel-container.dark #steering-section { border-top-color: #374151; }
+  .panel-container.dark .steering-label { color: #d1d5db; }
+  .panel-container.dark .steering-input {
+    background: #12111c;
+    border-color: #374151;
+    color: #e5e7eb;
+  }
+  .panel-container.dark .steering-input::placeholder { color: #6b7280; }
+  .panel-container.dark .steering-input:focus { border-color: #f59e0b; box-shadow: 0 0 0 2px rgba(245,158,11,0.2); }
+  .panel-container.dark .steering-queued-row { background: #2d1f01; border-color: #78350f; color: #fcd34d; }
+  .panel-container.dark .steering-clear-btn { color: #fcd34d; }
 `;
 
 const PANEL_ID = "flow-agent-panel-host";
@@ -763,6 +858,21 @@ export function initAgentPanel(
         </div>
         <div id="agent-plan"><div class="agent-plan-header">🧠 Plan</div><span id="agent-plan-text"></span></div>
         <div id="agent-log"></div>
+      </div>
+      <div id="steering-section">
+        <div class="steering-label">
+          💬 Steer Agent
+          <span id="steering-hint-badge" class="steering-hint-badge">Queued</span>
+        </div>
+        <div class="steering-row">
+          <textarea id="steering-input" class="steering-input" rows="2"
+            placeholder="Type a one-time instruction… e.g. &quot;skip login, go to checkout&quot;"></textarea>
+          <button id="steering-submit-btn" class="steering-submit-btn" disabled>Send</button>
+        </div>
+        <div id="steering-queued-row" class="steering-queued-row">
+          <span id="steering-queued-text" class="steering-queued-text"></span>
+          <button id="steering-clear-btn" class="steering-clear-btn" title="Clear">✕</button>
+        </div>
       </div>
       </div>
     `;
@@ -959,6 +1069,54 @@ export function initAgentPanel(
     }
   });
   // ---- end Agent Control wiring ----
+
+  // ---- Steering Input wiring ----
+  const steeringInput = shadowRoot.getElementById("steering-input") as HTMLTextAreaElement;
+  const steeringSubmitBtn = shadowRoot.getElementById("steering-submit-btn") as HTMLButtonElement;
+  const steeringHintBadge = shadowRoot.getElementById("steering-hint-badge") as HTMLElement;
+  const steeringQueuedRow = shadowRoot.getElementById("steering-queued-row") as HTMLElement;
+  const steeringQueuedText = shadowRoot.getElementById("steering-queued-text") as HTMLElement;
+  const steeringClearBtn = shadowRoot.getElementById("steering-clear-btn") as HTMLButtonElement;
+
+  const showQueuedHint = (text: string) => {
+    steeringQueuedText.textContent = `⏳ "${text}"`;
+    steeringQueuedRow.classList.add("visible");
+    steeringHintBadge.classList.add("visible");
+    steeringInput.value = "";
+    steeringSubmitBtn.disabled = true;
+  };
+
+  const clearQueuedHint = () => {
+    steeringQueuedRow.classList.remove("visible");
+    steeringHintBadge.classList.remove("visible");
+    steeringQueuedText.textContent = "";
+    // Also clear state so the hint is not sent to the AI
+    import("../state").then(({ state }) => { state.currentSteeringHint = null; }).catch(() => {});
+  };
+
+  steeringInput.addEventListener("input", () => {
+    steeringSubmitBtn.disabled = !steeringInput.value.trim();
+  });
+
+  steeringInput.addEventListener("keydown", (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+      e.preventDefault();
+      if (!steeringSubmitBtn.disabled) steeringSubmitBtn.click();
+    }
+  });
+
+  steeringSubmitBtn.addEventListener("click", () => {
+    const hint = steeringInput.value.trim();
+    if (!hint) return;
+    // Write into shared content-script state — prediction.ts will consume it on the next step
+    import("../state").then(({ state }) => {
+      state.currentSteeringHint = hint;
+    }).catch(() => {});
+    showQueuedHint(hint);
+  });
+
+  steeringClearBtn.addEventListener("click", () => clearQueuedHint());
+  // ---- end Steering Input wiring ----
 
   shadowRoot
     .getElementById("autofill-btn")
@@ -1293,6 +1451,18 @@ export function hideFormDetectedBanner() {
   banner?.classList.remove("visible");
 }
 
+/**
+ * Clears the "Queued" steering hint display once prediction.ts has consumed it.
+ * Call this after the hint has been attached to the AI context.
+ */
+export function clearSteeringHintDisplay() {
+  if (!shadowRoot) return;
+  shadowRoot.getElementById("steering-queued-row")?.classList.remove("visible");
+  shadowRoot.getElementById("steering-hint-badge")?.classList.remove("visible");
+  const textEl = shadowRoot.getElementById("steering-queued-text");
+  if (textEl) textEl.textContent = "";
+}
+
 export function setAIThinking(isThinking: boolean) {
   if (!shadowRoot) return;
   const indicator = shadowRoot.getElementById("ai-thinking-indicator");
@@ -1395,6 +1565,12 @@ export function updateAgentControlUI(
   // Step count
   if (stepCountEl) {
     stepCountEl.textContent = `${stepCount} step${stepCount !== 1 ? "s" : ""}`;
+  }
+
+  // Steering input — only visible while the agent is actively working
+  const steeringSection = shadowRoot.getElementById("steering-section");
+  if (steeringSection) {
+    steeringSection.classList.toggle("visible", status === "running" || status === "paused");
   }
 }
 

@@ -31,6 +31,7 @@ import {
   checkAndShowFormBanner,
 } from "../form/formDetect";
 import { generateAutofillData } from "../form/autofill";
+import { loadAndSyncSkills } from "./tools";
 
 // ─── Snapshot persistence (cross-navigation resume) ─────────────────────────
 
@@ -120,6 +121,16 @@ export function initializeAgent(): void {
   checkAndShowFormBanner();
   setTimeout(checkAndShowFormBanner, 1500);
   setTimeout(checkAndShowFormBanner, 4000);
+
+  // Seed the tool registry with skill tools already in storage
+  loadAndSyncSkills().catch(() => {/* no-op if storage unavailable */});
+
+  // Re-sync skill tools whenever skills are added/edited/toggled in the popup
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area === "local" && "flowRecorder_agentSkills" in changes) {
+      loadAndSyncSkills().catch(() => {/* no-op */});
+    }
+  });
 
   state.isAgentInitialized = true;
 }

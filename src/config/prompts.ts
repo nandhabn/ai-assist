@@ -242,6 +242,7 @@ export function buildAgentToolPrompt(context: CompactContext): string {
     postActionObservation,
     pageText,
     skills,
+    steeringHint,
   } = context;
 
   const url = currentUrl ?? pageMeta?.url ?? "unknown";
@@ -492,11 +493,29 @@ export function buildAgentToolPrompt(context: CompactContext): string {
         ].join("\n")
       : "";
 
-  // Extra tool entries from skills
-  const skillToolLines = skillToolNames.map(
-    (n) =>
-      `  ${n.padEnd(22)}— Custom skill tool. Call when its description matches your intent.`,
-  );
+  // Build skillToolLines here so each entry carries the tool's actual description + paramHint
+  // (skillToolNames is already populated while building skillsSection above)
+  const skillToolLines = skillToolNames.map((n) => {
+    // Find the tool across all relevant skills to get description + paramHint
+    for (const s of relevantSkills) {
+      const t = s.tools?.find((tool) => tool.name === n);
+      if (t) {
+        const hint = t.paramHint ? ` Params: ${t.paramHint}.` : "";
+        return `  ${n.padEnd(22)}— ${sanitizeSkillText(t.description)}${hint}`;
+      }
+    }
+    return `  ${n.padEnd(22)}— Custom skill tool.`;
+  });
+
+  const steeringSection = steeringHint
+    ? [
+        "=== USER STEERING (ONE-TIME OVERRIDE) ===",
+        `The user has typed the following instruction RIGHT NOW. Treat it as the highest-priority directive for THIS step only. After acting on it, resume normal mission execution.`,
+        `  ▶ ${steeringHint}`,
+        "=== END STEERING ===",
+        "",
+      ].join("\n")
+    : "";
 
   return [
     "=== ROLE ===",
@@ -504,6 +523,7 @@ export function buildAgentToolPrompt(context: CompactContext): string {
     "First, identify which element in the INTERACTIVE ELEMENTS list best advances the mission.",
     "Then choose the ONE tool call to interact with it.",
     "",
+    steeringSection,
     "=== MISSION ===",
     missionLine,
     "",
@@ -533,6 +553,7 @@ export function buildAgentToolPrompt(context: CompactContext): string {
     "  navigate(url)         — Go to a full URL. Use whenever you need a different site or page.",
     "  click(label)          — Click a button or link. The label MUST closely match one of the elements listed above.",
     "  type(label, text)     — Type 'text' into an input or textarea. 'label' is optional: omit it (leave empty) when a click just focused the target field — the text will go straight into the active element.",
+    "  fill_form(fields)     — Fill multiple form fields in one step. 'fields' is a JSON object mapping each field's visible label (or aria-label / placeholder / name) to the value to enter. Handles text inputs, textareas, <select> dropdowns, checkboxes (use \"true\"/\"false\"), and radio buttons. Prefer this over multiple type() calls when filling a whole form.",
     "  scroll(direction)     — Scroll 'up' or 'down' to reveal off-screen content.",
     "  message(message)      — Display a short status update to the user (key milestones only).",
     "  done(reason)          — Signal the mission is complete or unrecoverable.",
@@ -541,7 +562,8 @@ export function buildAgentToolPrompt(context: CompactContext): string {
     "=== TOOL SELECTION RULES ===",
     "  1. Call navigate() whenever you need to reach a different website or URL — do NOT look for a URL bar on-page.",
     '  2. Call click() for buttons and links. The "label" MUST be an EXACT string copied from the INTERACTIVE ELEMENTS list above — do NOT paraphrase, abbreviate, or invent labels.',
-    "  3. Call type() for text inputs, search boxes, and dropdowns. Provide the exact text to enter.",
+    "  3. Call type() for single text inputs. Use fill_form() instead when filling two or more fields.",
+    "  3b. Call fill_form() to fill an entire form at once — pass all fields as a single \"fields\" object. For checkboxes use \"true\" or \"false\". For selects / radios use the exact option text.",
     "  4. Call done() ONLY when the page displays an explicit success: thank-you message, order confirmation, or order number.",
     "  5. NEVER call done() just because you found, clicked, or viewed a product. The mission is only complete after checkout confirmation.",
     "  6. If a sidebar or panel just opened, you are NOT done — look for 'Visit site', 'Buy', 'Add to cart', or 'Checkout' actions inside it.",
@@ -553,15 +575,16 @@ export function buildAgentToolPrompt(context: CompactContext): string {
     "=== OUTPUT FORMAT ===",
     "Respond with ONLY a valid JSON object. No markdown fences, no extra keys, no commentary.",
     "Include ONLY the params relevant to the chosen tool:",
-    `  navigate → { "url": "<full URL>" }`,
-    `  click    → { "label": "<EXACT string from INTERACTIVE ELEMENTS>" }`,
-    `  type     → { "label": "<input label or empty>", "text": "<text to type>" }`,
-    `  scroll   → { "direction": "up" | "down" }`,
-    `  message  → { "message": "<short status>" }`,
-    `  done     → { "reason": "<why complete or unrecoverable>" }`,
+    `  navigate   → { "url": "<full URL>" }`,
+    `  click      → { "label": "<EXACT string from INTERACTIVE ELEMENTS>" }`,
+    `  type       → { "label": "<input label or empty>", "text": "<text to type>" }`,
+    `  fill_form  → { "fields": { "<field label>": "<value>", "<field label 2>": "<value 2>" } }`,
+    `  scroll     → { "direction": "up" | "down" }`,
+    `  message    → { "message": "<short status>" }`,
+    `  done       → { "reason": "<why complete or unrecoverable>" }`,
     "",
     "{",
-    `  "tool": "navigate | click | type | scroll | message | done${skillToolNames.length > 0 ? ` | ${skillToolNames.join(" | ")}` : ""}",`,
+    `  "tool": "navigate | click | type | fill_form | scroll | message | done${skillToolNames.length > 0 ? ` | ${skillToolNames.join(" | ")}` : ""}",`,
     '  "params": { <see per-tool params above> },',
     '  "reasoning": "<string — max 60 chars explaining why this tool was chosen>",',
     '  "confidenceEstimate": <number between 0.0 and 1.0>',
