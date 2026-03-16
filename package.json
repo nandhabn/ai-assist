@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite & vite build --config vite.config.content.ts --watch",
-    "build": "vite build && BUILD_TARGET=content vite build --config vite.config.content.ts && BUILD_TARGET=bridge vite build --config vite.config.content.ts",
+    "build": "vite build && vite build --config vite.config.content.ts",
     "preview": "vite preview",
     "check": "tsc -b"
   },

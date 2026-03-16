@@ -45,8 +45,13 @@
   cursor: pointer;
   white-space: nowrap;
 }
-.skills-add-btn:hover:not(:disabled) { background: #6d28d9; }
-.skills-add-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.skills-add-btn:hover:not(:disabled) {
+  background: #6d28d9;
+}
+.skills-add-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
 
 .skills-import-btn {
   padding: 5px 12px;
@@ -59,8 +64,13 @@
   cursor: pointer;
   white-space: nowrap;
 }
-.skills-import-btn:hover:not(:disabled) { background: #f3f0ff; }
-.skills-import-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.skills-import-btn:hover:not(:disabled) {
+  background: #f3f0ff;
+}
+.skills-import-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
 
 .skill-import-panel {
   display: flex;
@@ -202,11 +212,19 @@
   border-radius: 4px;
   line-height: 1;
   opacity: 0.6;
-  transition: opacity 0.15s, background 0.15s;
+  transition:
+    opacity 0.15s,
+    background 0.15s;
 }
 
-.skill-edit-btn:hover { opacity: 1; background: #ede9fe; }
-.skill-del-btn:hover  { opacity: 1; background: #fee2e2; }
+.skill-edit-btn:hover {
+  opacity: 1;
+  background: #ede9fe;
+}
+.skill-del-btn:hover {
+  opacity: 1;
+  background: #fee2e2;
+}
 
 .skill-description {
   font-size: 11px;
@@ -275,7 +293,9 @@
   box-sizing: border-box;
   outline: none;
 }
-.skill-form-input:focus { border-color: #7c3aed; }
+.skill-form-input:focus {
+  border-color: #7c3aed;
+}
 
 .skill-form-textarea {
   width: 100%;
@@ -291,7 +311,9 @@
   outline: none;
   line-height: 1.55;
 }
-.skill-form-textarea:focus { border-color: #7c3aed; }
+.skill-form-textarea:focus {
+  border-color: #7c3aed;
+}
 
 .skill-form-row {
   display: flex;
@@ -326,7 +348,9 @@
   color: #7c3aed;
   cursor: pointer;
 }
-.skill-cancel-btn:hover { background: #ede9fe; }
+.skill-cancel-btn:hover {
+  background: #ede9fe;
+}
 
 .skill-save-btn {
   padding: 4px 12px;
@@ -338,8 +362,13 @@
   color: #fff;
   cursor: pointer;
 }
-.skill-save-btn:hover:not(:disabled) { background: #6d28d9; }
-.skill-save-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.skill-save-btn:hover:not(:disabled) {
+  background: #6d28d9;
+}
+.skill-save-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
 
 /* ── Skill Tools section ── */
 
@@ -375,7 +404,9 @@
   color: #7c3aed;
   cursor: pointer;
 }
-.skill-tool-add-btn:hover { background: #ede9fe; }
+.skill-tool-add-btn:hover {
+  background: #ede9fe;
+}
 
 .skill-tool-row {
   display: flex;

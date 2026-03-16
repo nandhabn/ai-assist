@@ -36,7 +36,11 @@ async function hmacSHA256(
     false,
     ["sign"],
   );
-  return crypto.subtle.sign("HMAC", cryptoKey, new TextEncoder().encode(message));
+  return crypto.subtle.sign(
+    "HMAC",
+    cryptoKey,
+    new TextEncoder().encode(message),
+  );
 }
 
 async function sha256(data: string): Promise<string> {
@@ -69,7 +73,10 @@ async function getSignatureKey(
 
 function getAmzDate(): { amzDate: string; dateStamp: string } {
   const now = new Date();
-  const amzDate = now.toISOString().replace(/[-:]/g, "").replace(/\.\d+Z$/, "Z");
+  const amzDate = now
+    .toISOString()
+    .replace(/[-:]/g, "")
+    .replace(/\.\d+Z$/, "Z");
   const dateStamp = amzDate.slice(0, 8);
   return { amzDate, dateStamp };
 }
@@ -168,18 +175,20 @@ export interface NovaConfig {
  * The Bedrock fetch is always proxied through the background worker to bypass CORS.
  */
 export class NovaProvider implements AIProvider {
-  private cfg: Required<Omit<NovaConfig, 'sessionToken' | 'bedrockApiKey'>> &
-    Pick<NovaConfig, 'sessionToken' | 'bedrockApiKey'>;
+  private cfg: Required<Omit<NovaConfig, "sessionToken" | "bedrockApiKey">> &
+    Pick<NovaConfig, "sessionToken" | "bedrockApiKey">;
 
   constructor(config: NovaConfig) {
     if (!config.accessKey || !config.secretKey) {
-      throw new Error("NovaProvider requires at least accessKey and secretKey.");
+      throw new Error(
+        "NovaProvider requires at least accessKey and secretKey.",
+      );
     }
     this.cfg = {
-      accessKey:    config.accessKey,
-      secretKey:    config.secretKey,
-      region:       config.region       || "us-east-1",
-      model:        config.model        || "global.amazon.nova-2-lite-v1:0",
+      accessKey: config.accessKey,
+      secretKey: config.secretKey,
+      region: config.region || "us-east-1",
+      model: config.model || "global.amazon.nova-2-lite-v1:0",
       sessionToken: config.sessionToken,
       bedrockApiKey: config.bedrockApiKey,
     };
@@ -229,7 +238,7 @@ export class NovaProvider implements AIProvider {
       // Bedrock API key auth — Bearer token, no SigV4 needed
       headers = {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${this.cfg.bedrockApiKey}`,
+        Authorization: `Bearer ${this.cfg.bedrockApiKey}`,
       };
     } else {
       // IAM credentials — sign with SigV4
@@ -248,22 +257,27 @@ export class NovaProvider implements AIProvider {
     // Route the actual fetch through the background worker to avoid CORS blocks.
     // Bedrock does not send Access-Control-Allow-Origin headers, so a direct
     // content-script fetch would be rejected by the browser.
-    const result = await new Promise<{ ok: boolean; body?: string; status?: number; error?: string }>(
-      (resolve, reject) => {
-        chrome.runtime.sendMessage(
-          { action: "NOVA_CONVERSE", url: this.converseEndpoint, headers, body },
-          (resp) => {
-            if (chrome.runtime.lastError) {
-              return reject(new Error(chrome.runtime.lastError.message));
-            }
-            resolve(resp);
-          },
-        );
-      },
-    );
+    const result = await new Promise<{
+      ok: boolean;
+      body?: string;
+      status?: number;
+      error?: string;
+    }>((resolve, reject) => {
+      chrome.runtime.sendMessage(
+        { action: "NOVA_CONVERSE", url: this.converseEndpoint, headers, body },
+        (resp) => {
+          if (chrome.runtime.lastError) {
+            return reject(new Error(chrome.runtime.lastError.message));
+          }
+          resolve(resp);
+        },
+      );
+    });
 
     if (!result.ok) {
-      throw new Error(`Bedrock API error ${result.status ?? ""}: ${result.body ?? result.error}`);
+      throw new Error(
+        `Bedrock API error ${result.status ?? ""}: ${result.body ?? result.error}`,
+      );
     }
 
     const data = JSON.parse(result.body!);
@@ -297,11 +311,7 @@ export class NovaProvider implements AIProvider {
     const prompt = buildPredictionPrompt(context);
 
     try {
-      const raw = await this.converse(
-        PREDICTION_SYSTEM_PROMPT,
-        prompt,
-        0.2,
-      );
+      const raw = await this.converse(PREDICTION_SYSTEM_PROMPT, prompt, 0.2);
       const prediction = JSON.parse(this.extractJson(raw)) as AIPrediction;
 
       if (
@@ -335,11 +345,7 @@ export class NovaProvider implements AIProvider {
     const prompt = buildFormDataPrompt(fieldDescriptions, pageContext);
 
     try {
-      const raw = await this.converse(
-        FORM_DATA_SYSTEM_PROMPT,
-        prompt,
-        0.7,
-      );
+      const raw = await this.converse(FORM_DATA_SYSTEM_PROMPT, prompt, 0.7);
       const parsed = JSON.parse(this.extractJson(raw)) as AIFormData;
 
       if (!parsed.fieldValues || typeof parsed.fieldValues !== "object") {

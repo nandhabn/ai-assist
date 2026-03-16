@@ -25,10 +25,11 @@ export const AI_CONFIG = {
   novaConfig: (() => {
     const accessKey = import.meta.env.VITE_AWS_ACCESS_KEY;
     const secretKey = import.meta.env.VITE_AWS_SECRET_KEY;
-    const region    = import.meta.env.VITE_AWS_REGION    || "us-east-1";
-    const apiKey    = import.meta.env.VITE_AWS_BEDROCK_API_KEY;
-    const model     = import.meta.env.VITE_AWS_NOVA_MODEL || "global.amazon.nova-2-lite-v1:0";
-    const legacy    = import.meta.env.VITE_AWS_BEDROCK_CREDENTIALS;
+    const region = import.meta.env.VITE_AWS_REGION || "us-east-1";
+    const apiKey = import.meta.env.VITE_AWS_BEDROCK_API_KEY;
+    const model =
+      import.meta.env.VITE_AWS_NOVA_MODEL || "global.amazon.nova-2-lite-v1:0";
+    const legacy = import.meta.env.VITE_AWS_BEDROCK_CREDENTIALS;
 
     // Individual vars take priority
     if (accessKey && secretKey) {
@@ -38,9 +39,12 @@ export const AI_CONFIG = {
     if (legacy) {
       const parts = legacy.split(":");
       return {
-        accessKey:    parts[0],
-        secretKey:    parts[1],
-        region:       (parts.length >= 3 && parts[2].includes("-")) ? parts[2] : (parts[3] || "us-east-1"),
+        accessKey: parts[0],
+        secretKey: parts[1],
+        region:
+          parts.length >= 3 && parts[2].includes("-")
+            ? parts[2]
+            : parts[3] || "us-east-1",
         bedrockApiKey: undefined as string | undefined,
       };
     }
@@ -57,7 +61,6 @@ export interface ResolvedAIConfig {
   gemini?: string;
   chatgpt?: string;
   novaConfig: typeof AI_CONFIG.novaConfig;
-  chatgptTab: boolean;
   preferredProvider?: ProviderName;
   preferredModel?: string;
 }
@@ -72,12 +75,13 @@ export async function getAIConfig(): Promise<ResolvedAIConfig> {
   const novaConfig = (() => {
     if (userKeys.awsAccessKey && userKeys.awsSecretKey) {
       return {
-        accessKey:     userKeys.awsAccessKey,
-        secretKey:     userKeys.awsSecretKey,
-        region:        userKeys.awsRegion || "us-east-1",
-        model:         userKeys.preferredProvider === "nova" && userKeys.preferredModel
-                         ? userKeys.preferredModel
-                         : "global.amazon.nova-2-lite-v1:0",
+        accessKey: userKeys.awsAccessKey,
+        secretKey: userKeys.awsSecretKey,
+        region: userKeys.awsRegion || "us-east-1",
+        model:
+          userKeys.preferredProvider === "nova" && userKeys.preferredModel
+            ? userKeys.preferredModel
+            : "global.amazon.nova-2-lite-v1:0",
         bedrockApiKey: undefined as string | undefined,
       };
     }
@@ -85,14 +89,11 @@ export async function getAIConfig(): Promise<ResolvedAIConfig> {
   })();
 
   return {
-    gemini:            userKeys.gemini  || AI_CONFIG.gemini,
-    chatgpt:           userKeys.openai  || AI_CONFIG.chatgpt,
+    gemini: userKeys.gemini || AI_CONFIG.gemini,
+    chatgpt: userKeys.openai || AI_CONFIG.chatgpt,
     novaConfig,
-    // Enable chatgpt-tab if the user explicitly selected it as their preferred
-    // provider, even when the build-time flag is off.
-    chatgptTab:        AI_CONFIG.chatgptTab || userKeys.preferredProvider === "chatgpt-tab",
     preferredProvider: userKeys.preferredProvider,
-    preferredModel:    userKeys.preferredModel,
+    preferredModel: userKeys.preferredModel,
   };
 }
 

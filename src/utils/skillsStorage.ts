@@ -63,7 +63,10 @@ export function parseToolSteps(raw: string): SkillToolStep[] {
     .map((line): SkillToolStep | null => {
       const colonIdx = line.indexOf(":");
       if (colonIdx === -1) return null;
-      const tool = line.slice(0, colonIdx).trim().toLowerCase() as SkillToolStep["tool"];
+      const tool = line
+        .slice(0, colonIdx)
+        .trim()
+        .toLowerCase() as SkillToolStep["tool"];
       const rest = line.slice(colonIdx + 1).trim();
       switch (tool) {
         case "click":
@@ -71,7 +74,11 @@ export function parseToolSteps(raw: string): SkillToolStep[] {
         case "type": {
           const pipeIdx = rest.indexOf("|");
           if (pipeIdx === -1) return { tool: "type", label: rest, text: "" };
-          return { tool: "type", label: rest.slice(0, pipeIdx).trim(), text: rest.slice(pipeIdx + 1).trim() };
+          return {
+            tool: "type",
+            label: rest.slice(0, pipeIdx).trim(),
+            text: rest.slice(pipeIdx + 1).trim(),
+          };
         }
         case "navigate":
           return { tool: "navigate", url: rest };
@@ -95,13 +102,22 @@ export function serializeToolSteps(steps: SkillToolStep[]): string {
   return steps
     .map((s) => {
       switch (s.tool) {
-        case "click":    return `click: ${s.label ?? ""}`;
-        case "type":     return s.label?.trim() ? `type: ${s.label} | ${s.text ?? ""}` : `type: | ${s.text ?? ""}`;
-        case "navigate": return `navigate: ${s.url ?? ""}`;
-        case "scroll":   return `scroll: ${s.direction ?? "down"}`;
-        case "message":  return `message: ${s.message ?? ""}`;
-        case "delay":    return `delay: ${s.ms ?? 1000}`;
-        default: return "";
+        case "click":
+          return `click: ${s.label ?? ""}`;
+        case "type":
+          return s.label?.trim()
+            ? `type: ${s.label} | ${s.text ?? ""}`
+            : `type: | ${s.text ?? ""}`;
+        case "navigate":
+          return `navigate: ${s.url ?? ""}`;
+        case "scroll":
+          return `scroll: ${s.direction ?? "down"}`;
+        case "message":
+          return `message: ${s.message ?? ""}`;
+        case "delay":
+          return `delay: ${s.ms ?? 1000}`;
+        default:
+          return "";
       }
     })
     .filter(Boolean)

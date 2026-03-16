@@ -11,7 +11,12 @@ import {
 } from "@/utils/skillsStorage";
 import "../styles/Skills.css";
 
-const EMPTY_FORM = { name: "", description: "", instructions: "", enabled: true };
+const EMPTY_FORM = {
+  name: "",
+  description: "",
+  instructions: "",
+  enabled: true,
+};
 const EMPTY_TOOL = { name: "", description: "", stepsRaw: "" };
 
 export default function Skills() {
@@ -25,10 +30,15 @@ export default function Skills() {
   const [importError, setImportError] = React.useState<string | null>(null);
   const [importOk, setImportOk] = React.useState(false);
   // Tool editing state — keyed by skillId+toolIndex or "new"
-  const [toolEditing, setToolEditing] = React.useState<{ skillId: string; idx: number | "new" } | null>(null);
+  const [toolEditing, setToolEditing] = React.useState<{
+    skillId: string;
+    idx: number | "new";
+  } | null>(null);
   const [toolForm, setToolForm] = React.useState(EMPTY_TOOL);
 
-  React.useEffect(() => { getSkills().then(setSkills); }, []);
+  React.useEffect(() => {
+    getSkills().then(setSkills);
+  }, []);
   const reload = () => getSkills().then(setSkills);
 
   const handleToggle = async (skill: AgentSkill) => {
@@ -39,13 +49,21 @@ export default function Skills() {
   const handleDelete = async (id: string) => {
     if (!confirm("Delete this skill?")) return;
     await deleteSkill(id);
-    if (editing === id) { setEditing(null); setForm(EMPTY_FORM); }
+    if (editing === id) {
+      setEditing(null);
+      setForm(EMPTY_FORM);
+    }
     reload();
   };
 
   const handleEdit = (skill: AgentSkill) => {
     setEditing(skill.id);
-    setForm({ name: skill.name, description: skill.description, instructions: skill.instructions, enabled: skill.enabled });
+    setForm({
+      name: skill.name,
+      description: skill.description,
+      instructions: skill.instructions,
+      enabled: skill.enabled,
+    });
     setShowNew(false);
     setToolEditing(null);
   };
@@ -70,22 +88,48 @@ export default function Skills() {
     reload();
   };
 
-  const handleFieldChange = (field: keyof typeof EMPTY_FORM) =>
+  const handleFieldChange =
+    (field: keyof typeof EMPTY_FORM) =>
     (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-      const val = field === "enabled" ? (e.target as HTMLInputElement).checked : e.target.value;
+      const val =
+        field === "enabled"
+          ? (e.target as HTMLInputElement).checked
+          : e.target.value;
       setForm((prev) => ({ ...prev, [field]: val }));
     };
 
-  const openNew = () => { setShowNew(true); setEditing(null); setForm(EMPTY_FORM); setShowImport(false); };
-  const cancelForm = () => { setShowNew(false); setEditing(null); setForm(EMPTY_FORM); };
+  const openNew = () => {
+    setShowNew(true);
+    setEditing(null);
+    setForm(EMPTY_FORM);
+    setShowImport(false);
+  };
+  const cancelForm = () => {
+    setShowNew(false);
+    setEditing(null);
+    setForm(EMPTY_FORM);
+  };
 
-  const openImport = () => { setShowImport(true); setShowNew(false); setEditing(null); setImportJson(""); setImportError(null); setImportOk(false); };
-  const cancelImport = () => { setShowImport(false); setImportJson(""); setImportError(null); };
+  const openImport = () => {
+    setShowImport(true);
+    setShowNew(false);
+    setEditing(null);
+    setImportJson("");
+    setImportError(null);
+    setImportOk(false);
+  };
+  const cancelImport = () => {
+    setShowImport(false);
+    setImportJson("");
+    setImportError(null);
+  };
 
   const handleImport = async () => {
     setImportError(null);
     let parsed: any;
-    try { parsed = JSON.parse(importJson.trim()); } catch {
+    try {
+      parsed = JSON.parse(importJson.trim());
+    } catch {
       setImportError("Invalid JSON — check for missing quotes or brackets.");
       return;
     }
@@ -111,12 +155,19 @@ export default function Skills() {
     await addSkill({
       name: String(parsed.name).trim(),
       description: String(parsed.description ?? "").trim(),
-      instructions: String(parsed.instructions ?? parsed.description ?? "").trim(),
+      instructions: String(
+        parsed.instructions ?? parsed.description ?? "",
+      ).trim(),
       enabled: true,
       tools,
     });
     setImportOk(true);
-    setTimeout(() => { setShowImport(false); setImportJson(""); setImportOk(false); reload(); }, 1000);
+    setTimeout(() => {
+      setShowImport(false);
+      setImportJson("");
+      setImportOk(false);
+      reload();
+    }, 1000);
   };
 
   // ── Tool CRUD ──────────────────────────────────────────────────────────────
@@ -128,10 +179,17 @@ export default function Skills() {
 
   const openEditTool = (skillId: string, idx: number, tool: SkillTool) => {
     setToolEditing({ skillId, idx });
-    setToolForm({ name: tool.name, description: tool.description, stepsRaw: serializeToolSteps(tool.steps) });
+    setToolForm({
+      name: tool.name,
+      description: tool.description,
+      stepsRaw: serializeToolSteps(tool.steps),
+    });
   };
 
-  const cancelToolForm = () => { setToolEditing(null); setToolForm(EMPTY_TOOL); };
+  const cancelToolForm = () => {
+    setToolEditing(null);
+    setToolForm(EMPTY_TOOL);
+  };
 
   const handleSaveTool = async () => {
     if (!toolEditing || !toolForm.name.trim()) return;
@@ -171,58 +229,125 @@ export default function Skills() {
         <div>
           <h3 className="skills-title">🧠 Agent Skills</h3>
           <p className="skills-hint">
-            Skills inject instructions and custom tools into the AI prompt. Active skills are always included.
+            Skills inject instructions and custom tools into the AI prompt.
+            Active skills are always included.
           </p>
         </div>
         <div className="skills-header-btns">
-          <button className="skills-import-btn" onClick={openImport} disabled={showImport || showNew}>⬇ Import JSON</button>
-          <button className="skills-add-btn" onClick={openNew} disabled={showNew || showImport}>+ New</button>
+          <button
+            className="skills-import-btn"
+            onClick={openImport}
+            disabled={showImport || showNew}
+          >
+            ⬇ Import JSON
+          </button>
+          <button
+            className="skills-add-btn"
+            onClick={openNew}
+            disabled={showNew || showImport}
+          >
+            + New
+          </button>
         </div>
       </div>
 
       {showImport && (
         <div className="skill-import-panel">
-          <label className="skill-form-label">Paste GPT-generated skill JSON</label>
+          <label className="skill-form-label">
+            Paste GPT-generated skill JSON
+          </label>
           <textarea
             className="skill-form-textarea skill-import-textarea"
             rows={8}
-            placeholder={'{ "name": "...", "description": "...", "instructions": "1. ...", "tools": [] }'}
+            placeholder={
+              '{ "name": "...", "description": "...", "instructions": "1. ...", "tools": [] }'
+            }
             value={importJson}
-            onChange={(e) => { setImportJson(e.target.value); setImportError(null); }}
+            onChange={(e) => {
+              setImportJson(e.target.value);
+              setImportError(null);
+            }}
             spellCheck={false}
           />
-          {importError && <div className="skill-import-error">{importError}</div>}
+          {importError && (
+            <div className="skill-import-error">{importError}</div>
+          )}
           {importOk && <div className="skill-import-ok">✓ Skill imported!</div>}
           <div className="skill-form-btns">
-            <button className="skill-cancel-btn" onClick={cancelImport}>Cancel</button>
-            <button className="skill-save-btn" onClick={handleImport} disabled={!importJson.trim() || importOk}>Import</button>
+            <button className="skill-cancel-btn" onClick={cancelImport}>
+              Cancel
+            </button>
+            <button
+              className="skill-save-btn"
+              onClick={handleImport}
+              disabled={!importJson.trim() || importOk}
+            >
+              Import
+            </button>
           </div>
         </div>
       )}
 
       {showNew && (
-        <SkillForm form={form} onChange={handleFieldChange} onSave={handleAddNew} onCancel={cancelForm} saveLabel="Add Skill" />
+        <SkillForm
+          form={form}
+          onChange={handleFieldChange}
+          onSave={handleAddNew}
+          onCancel={cancelForm}
+          saveLabel="Add Skill"
+        />
       )}
 
       {skills.length === 0 && !showNew && (
-        <div className="skills-empty">No skills yet. Click <strong>+ New</strong> to create one.</div>
+        <div className="skills-empty">
+          No skills yet. Click <strong>+ New</strong> to create one.
+        </div>
       )}
 
       {skills.map((skill) => (
-        <div key={skill.id} className={`skill-card ${skill.enabled ? "skill-card--active" : "skill-card--off"}`}>
+        <div
+          key={skill.id}
+          className={`skill-card ${skill.enabled ? "skill-card--active" : "skill-card--off"}`}
+        >
           {editing === skill.id ? (
-            <SkillForm form={form} onChange={handleFieldChange} onSave={handleSaveEdit} onCancel={cancelForm} saveLabel={saved === skill.id ? "✓ Saved" : "Save"} />
+            <SkillForm
+              form={form}
+              onChange={handleFieldChange}
+              onSave={handleSaveEdit}
+              onCancel={cancelForm}
+              saveLabel={saved === skill.id ? "✓ Saved" : "Save"}
+            />
           ) : (
             <>
               <div className="skill-card-header">
-                <label className="skill-toggle-label" title={skill.enabled ? "Disable skill" : "Enable skill"}>
-                  <input type="checkbox" className="skill-toggle-input" checked={skill.enabled} onChange={() => handleToggle(skill)} />
+                <label
+                  className="skill-toggle-label"
+                  title={skill.enabled ? "Disable skill" : "Enable skill"}
+                >
+                  <input
+                    type="checkbox"
+                    className="skill-toggle-input"
+                    checked={skill.enabled}
+                    onChange={() => handleToggle(skill)}
+                  />
                   <span className="skill-toggle-track" />
                   <span className="skill-name">{skill.name}</span>
                 </label>
                 <div className="skill-card-actions">
-                  <button className="skill-edit-btn" onClick={() => handleEdit(skill)} title="Edit">✏️</button>
-                  <button className="skill-del-btn" onClick={() => handleDelete(skill.id)} title="Delete">🗑</button>
+                  <button
+                    className="skill-edit-btn"
+                    onClick={() => handleEdit(skill)}
+                    title="Edit"
+                  >
+                    ✏️
+                  </button>
+                  <button
+                    className="skill-del-btn"
+                    onClick={() => handleDelete(skill.id)}
+                    title="Delete"
+                  >
+                    🗑
+                  </button>
                 </div>
               </div>
               <p className="skill-description">{skill.description}</p>
@@ -231,33 +356,73 @@ export default function Skills() {
               {/* ── Skill Tools ── */}
               <div className="skill-tools-section">
                 <div className="skill-tools-header">
-                  <span className="skill-tools-label">🔧 Tools ({(skill.tools ?? []).length})</span>
-                  <button className="skill-tool-add-btn" onClick={() => openNewTool(skill.id)}>+ Add Tool</button>
+                  <span className="skill-tools-label">
+                    🔧 Tools ({(skill.tools ?? []).length})
+                  </span>
+                  <button
+                    className="skill-tool-add-btn"
+                    onClick={() => openNewTool(skill.id)}
+                  >
+                    + Add Tool
+                  </button>
                 </div>
 
                 {(skill.tools ?? []).map((tool, idx) => (
                   <div key={idx} className="skill-tool-row">
-                    {toolEditing?.skillId === skill.id && toolEditing.idx === idx ? (
-                      <ToolForm form={toolForm} onChange={(f, v) => setToolForm((p) => ({ ...p, [f]: v }))} onSave={handleSaveTool} onCancel={cancelToolForm} />
+                    {toolEditing?.skillId === skill.id &&
+                    toolEditing.idx === idx ? (
+                      <ToolForm
+                        form={toolForm}
+                        onChange={(f, v) =>
+                          setToolForm((p) => ({ ...p, [f]: v }))
+                        }
+                        onSave={handleSaveTool}
+                        onCancel={cancelToolForm}
+                      />
                     ) : (
                       <>
                         <div className="skill-tool-info">
                           <code className="skill-tool-name">{tool.name}</code>
-                          <span className="skill-tool-desc">{tool.description}</span>
-                          <span className="skill-tool-steps">{tool.steps.length} step{tool.steps.length !== 1 ? "s" : ""}</span>
+                          <span className="skill-tool-desc">
+                            {tool.description}
+                          </span>
+                          <span className="skill-tool-steps">
+                            {tool.steps.length} step
+                            {tool.steps.length !== 1 ? "s" : ""}
+                          </span>
                         </div>
                         <div className="skill-tool-actions">
-                          <button className="skill-edit-btn" onClick={() => openEditTool(skill.id, idx, tool)} title="Edit tool">✏️</button>
-                          <button className="skill-del-btn" onClick={() => handleDeleteTool(skill.id, idx)} title="Delete tool">🗑</button>
+                          <button
+                            className="skill-edit-btn"
+                            onClick={() => openEditTool(skill.id, idx, tool)}
+                            title="Edit tool"
+                          >
+                            ✏️
+                          </button>
+                          <button
+                            className="skill-del-btn"
+                            onClick={() => handleDeleteTool(skill.id, idx)}
+                            title="Delete tool"
+                          >
+                            🗑
+                          </button>
                         </div>
                       </>
                     )}
                   </div>
                 ))}
 
-                {toolEditing?.skillId === skill.id && toolEditing.idx === "new" && (
-                  <ToolForm form={toolForm} onChange={(f, v) => setToolForm((p) => ({ ...p, [f]: v }))} onSave={handleSaveTool} onCancel={cancelToolForm} />
-                )}
+                {toolEditing?.skillId === skill.id &&
+                  toolEditing.idx === "new" && (
+                    <ToolForm
+                      form={toolForm}
+                      onChange={(f, v) =>
+                        setToolForm((p) => ({ ...p, [f]: v }))
+                      }
+                      onSave={handleSaveTool}
+                      onCancel={cancelToolForm}
+                    />
+                  )}
               </div>
             </>
           )}
@@ -269,39 +434,87 @@ export default function Skills() {
 
 // ── Skill form ─────────────────────────────────────────────────────────────────
 
-const EMPTY_FORM_TYPE = { name: "", description: "", instructions: "", enabled: true };
+const EMPTY_FORM_TYPE = {
+  name: "",
+  description: "",
+  instructions: "",
+  enabled: true,
+};
 
 interface SkillFormProps {
   form: typeof EMPTY_FORM_TYPE;
-  onChange: (field: keyof typeof EMPTY_FORM_TYPE) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => void;
+  onChange: (
+    field: keyof typeof EMPTY_FORM_TYPE,
+  ) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => void;
   onSave: () => void;
   onCancel: () => void;
   saveLabel: string;
 }
 
-function SkillForm({ form, onChange, onSave, onCancel, saveLabel }: SkillFormProps) {
+function SkillForm({
+  form,
+  onChange,
+  onSave,
+  onCancel,
+  saveLabel,
+}: SkillFormProps) {
   return (
     <div className="skill-form">
       <div className="skill-form-group">
         <label className="skill-form-label">Name</label>
-        <input className="skill-form-input" placeholder="e.g. Checkout Flow" value={form.name} onChange={onChange("name")} />
+        <input
+          className="skill-form-input"
+          placeholder="e.g. Checkout Flow"
+          value={form.name}
+          onChange={onChange("name")}
+        />
       </div>
       <div className="skill-form-group">
-        <label className="skill-form-label">Description <span className="skill-form-hint">(shown to the AI)</span></label>
-        <input className="skill-form-input" placeholder="e.g. Handles e-commerce checkout and cart flows" value={form.description} onChange={onChange("description")} />
+        <label className="skill-form-label">
+          Description <span className="skill-form-hint">(shown to the AI)</span>
+        </label>
+        <input
+          className="skill-form-input"
+          placeholder="e.g. Handles e-commerce checkout and cart flows"
+          value={form.description}
+          onChange={onChange("description")}
+        />
       </div>
       <div className="skill-form-group">
-        <label className="skill-form-label">Instructions <span className="skill-form-hint">(injected into every prompt)</span></label>
-        <textarea className="skill-form-textarea" rows={4} placeholder={"1. Always verify item color/size before Add to Cart\n2. If captcha appears, use message() to notify user"} value={form.instructions} onChange={onChange("instructions")} />
+        <label className="skill-form-label">
+          Instructions{" "}
+          <span className="skill-form-hint">(injected into every prompt)</span>
+        </label>
+        <textarea
+          className="skill-form-textarea"
+          rows={4}
+          placeholder={
+            "1. Always verify item color/size before Add to Cart\n2. If captcha appears, use message() to notify user"
+          }
+          value={form.instructions}
+          onChange={onChange("instructions")}
+        />
       </div>
       <div className="skill-form-row">
         <label className="skill-form-enabled">
-          <input type="checkbox" checked={form.enabled} onChange={onChange("enabled") as any} />
+          <input
+            type="checkbox"
+            checked={form.enabled}
+            onChange={onChange("enabled") as any}
+          />
           <span>Enable after saving</span>
         </label>
         <div className="skill-form-btns">
-          <button className="skill-cancel-btn" onClick={onCancel}>Cancel</button>
-          <button className="skill-save-btn" onClick={onSave} disabled={!form.name.trim() || !form.instructions.trim()}>{saveLabel}</button>
+          <button className="skill-cancel-btn" onClick={onCancel}>
+            Cancel
+          </button>
+          <button
+            className="skill-save-btn"
+            onClick={onSave}
+            disabled={!form.name.trim() || !form.instructions.trim()}
+          >
+            {saveLabel}
+          </button>
         </div>
       </div>
     </div>
@@ -321,22 +534,59 @@ function ToolForm({ form, onChange, onSave, onCancel }: ToolFormProps) {
   return (
     <div className="skill-form skill-tool-form">
       <div className="skill-form-group">
-        <label className="skill-form-label">Tool name <span className="skill-form-hint">(lowercase, underscores OK)</span></label>
-        <input className="skill-form-input" placeholder="e.g. handle_otp" value={form.name} onChange={(e) => onChange("name", e.target.value)} />
+        <label className="skill-form-label">
+          Tool name{" "}
+          <span className="skill-form-hint">(lowercase, underscores OK)</span>
+        </label>
+        <input
+          className="skill-form-input"
+          placeholder="e.g. handle_otp"
+          value={form.name}
+          onChange={(e) => onChange("name", e.target.value)}
+        />
       </div>
       <div className="skill-form-group">
-        <label className="skill-form-label">When to use <span className="skill-form-hint">(shown to the AI)</span></label>
-        <input className="skill-form-input" placeholder="e.g. When an OTP input appears after login" value={form.description} onChange={(e) => onChange("description", e.target.value)} />
+        <label className="skill-form-label">
+          When to use <span className="skill-form-hint">(shown to the AI)</span>
+        </label>
+        <input
+          className="skill-form-input"
+          placeholder="e.g. When an OTP input appears after login"
+          value={form.description}
+          onChange={(e) => onChange("description", e.target.value)}
+        />
       </div>
       <div className="skill-form-group">
-        <label className="skill-form-label">Steps <span className="skill-form-hint">one per line: click: Label · type: Label | text · navigate: url · scroll: down · message: text</span></label>
-        <textarea className="skill-form-textarea" rows={5} placeholder={"click: Send OTP\nmessage: Waiting for OTP — please enter it manually\ntype: OTP | 000000"} value={form.stepsRaw} onChange={(e) => onChange("stepsRaw", e.target.value)} />
+        <label className="skill-form-label">
+          Steps{" "}
+          <span className="skill-form-hint">
+            one per line: click: Label · type: Label | text · navigate: url ·
+            scroll: down · message: text
+          </span>
+        </label>
+        <textarea
+          className="skill-form-textarea"
+          rows={5}
+          placeholder={
+            "click: Send OTP\nmessage: Waiting for OTP — please enter it manually\ntype: OTP | 000000"
+          }
+          value={form.stepsRaw}
+          onChange={(e) => onChange("stepsRaw", e.target.value)}
+        />
       </div>
       <div className="skill-form-row">
         <div />
         <div className="skill-form-btns">
-          <button className="skill-cancel-btn" onClick={onCancel}>Cancel</button>
-          <button className="skill-save-btn" onClick={onSave} disabled={!form.name.trim() || !form.stepsRaw.trim()}>Save Tool</button>
+          <button className="skill-cancel-btn" onClick={onCancel}>
+            Cancel
+          </button>
+          <button
+            className="skill-save-btn"
+            onClick={onSave}
+            disabled={!form.name.trim() || !form.stepsRaw.trim()}
+          >
+            Save Tool
+          </button>
         </div>
       </div>
     </div>

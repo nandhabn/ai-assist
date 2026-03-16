@@ -3,18 +3,16 @@
 import { AIProvider } from "../types/ai";
 import { GeminiProvider } from "./geminiProvider";
 import { ChatGPTProvider } from "./chatgptProvider";
-import { ChatGPTTabProvider } from "./chatgptTabProvider";
 import { NovaProvider, NovaConfig } from "./novaProvider";
-import {
-  BatchingAIProvider,
-  createBatchingProvider,
-} from "./batchingProvider";
+import { BatchingAIProvider, createBatchingProvider } from "./batchingProvider";
 import type { BatchingProviderOptions } from "./batchingProvider";
 
-const providerRegistry: Record<string, (apiKey: string, model?: string) => AIProvider> = {
+const providerRegistry: Record<
+  string,
+  (apiKey: string, model?: string) => AIProvider
+> = {
   gemini: (apiKey, model) => new GeminiProvider(apiKey, model),
   chatgpt: (apiKey, model) => new ChatGPTProvider(apiKey, model),
-  "chatgpt-tab": (_apiKey) => new ChatGPTTabProvider(),
 };
 
 /**

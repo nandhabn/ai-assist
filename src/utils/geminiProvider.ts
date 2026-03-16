@@ -83,7 +83,7 @@ function safeJsonParse<T>(raw: string): T {
     let repaired = text;
     // Count unescaped quotes to determine if we're inside a string
     const quoteCount = (repaired.match(/(?<!\\)"/g) ?? []).length;
-    if (quoteCount % 2 !== 0) repaired += '"';  // close open string
+    if (quoteCount % 2 !== 0) repaired += '"'; // close open string
 
     // If the text ends with a bare ":" (missing value), insert null
     if (/:\s*$/.test(repaired)) repaired += "null";
@@ -160,7 +160,9 @@ export class GeminiProvider implements AIProvider {
       ? 0
       : Math.min(4096, Math.ceil(inputTokenEstimate * 0.12));
     const budget = jsonBase + thinkingBuffer;
-    aiLog(`[Gemini] outputTokenBudget | inputEst=${inputTokenEstimate} thinking=${thinkingBuffer} budget=${budget}`);
+    aiLog(
+      `[Gemini] outputTokenBudget | inputEst=${inputTokenEstimate} thinking=${thinkingBuffer} budget=${budget}`,
+    );
     return Math.min(8192, budget);
   }
 
@@ -180,25 +182,22 @@ export class GeminiProvider implements AIProvider {
     const prompt = buildPredictionPrompt(trimmedContext);
 
     try {
-      const response = await fetch(
-        this.endpoint,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-goog-api-key": this.apiKey,
-          },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: prompt }] }],
-            generationConfig: {
-              response_mime_type: "application/json",
-              temperature: 0.2,
-              maxOutputTokens: this.outputTokenBudget(prompt, 1024),
-              ...(this.isFlash ? { thinkingConfig: { thinkingBudget: 0 } } : {}),
-            },
-          }),
+      const response = await fetch(this.endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-goog-api-key": this.apiKey,
         },
-      );
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: {
+            response_mime_type: "application/json",
+            temperature: 0.2,
+            maxOutputTokens: this.outputTokenBudget(prompt, 1024),
+            ...(this.isFlash ? { thinkingConfig: { thinkingBudget: 0 } } : {}),
+          },
+        }),
+      });
 
       if (!response.ok) {
         const errorBody = await response.text();
@@ -210,11 +209,15 @@ export class GeminiProvider implements AIProvider {
       const data = await response.json();
       const candidate = data?.candidates?.[0];
       if (candidate?.finishReason === "MAX_TOKENS") {
-        console.warn("[Gemini] predictNextAction: response hit MAX_TOKENS limit — increase maxOutputTokens further if truncation persists.");
+        console.warn(
+          "[Gemini] predictNextAction: response hit MAX_TOKENS limit — increase maxOutputTokens further if truncation persists.",
+        );
       }
       if (!candidate || !candidate.content?.parts?.[0]?.text) {
         const reason = candidate?.finishReason ?? "no candidates";
-        aiLog(`[Gemini] predictNextAction NO CONTENT | finishReason: ${reason}`);
+        aiLog(
+          `[Gemini] predictNextAction NO CONTENT | finishReason: ${reason}`,
+        );
         throw new Error(`Gemini returned no content (${reason})`);
       }
       const predictionText = candidate.content.parts[0].text;
@@ -223,7 +226,10 @@ export class GeminiProvider implements AIProvider {
       try {
         prediction = safeJsonParse<AIPrediction>(predictionText);
       } catch (parseErr) {
-        console.error("[Gemini] predictNextAction JSON parse FAILED. Raw text:", predictionText);
+        console.error(
+          "[Gemini] predictNextAction JSON parse FAILED. Raw text:",
+          predictionText,
+        );
         throw parseErr;
       }
 
@@ -232,7 +238,10 @@ export class GeminiProvider implements AIProvider {
       if (!("reasoning" in prediction) || !prediction.reasoning) {
         prediction.reasoning = "(truncated)";
       }
-      if (!("confidenceEstimate" in prediction) || prediction.confidenceEstimate == null) {
+      if (
+        !("confidenceEstimate" in prediction) ||
+        prediction.confidenceEstimate == null
+      ) {
         prediction.confidenceEstimate = 0;
       }
 
@@ -243,14 +252,18 @@ export class GeminiProvider implements AIProvider {
       // If the label is missing/empty due to truncation, fall through to error so the
       // agent retries rather than acting on a blank action.
       if (!prediction.predictedActionLabel) {
-        throw new Error("Gemini response truncated: predictedActionLabel is empty.");
+        throw new Error(
+          "Gemini response truncated: predictedActionLabel is empty.",
+        );
       }
 
       geminiStats.success++;
       return prediction;
     } catch (error) {
       geminiStats.error++;
-      aiLog(`[Gemini] predictNextAction ERROR | ${error} | ${geminiStatsLabel()}`);
+      aiLog(
+        `[Gemini] predictNextAction ERROR | ${error} | ${geminiStatsLabel()}`,
+      );
       console.error("Error in GeminiProvider:", error);
       throw new Error("Failed to get prediction from Gemini.");
     }
@@ -268,26 +281,26 @@ export class GeminiProvider implements AIProvider {
     const prompt = buildFormDataPrompt(fieldDescriptions, pageContext);
 
     try {
-      const response = await fetch(
-        this.endpoint,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "x-goog-api-key": this.apiKey },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: prompt }] }],
-            generationConfig: {
-              response_mime_type: "application/json",
-              temperature: 0.7,
-              // Form data output scales with field count; base 512 + 40 per field.
-              maxOutputTokens: this.outputTokenBudget(
-                prompt,
-                Math.max(512, 512 + fields.length * 40),
-              ),
-              ...(this.isFlash ? { thinkingConfig: { thinkingBudget: 0 } } : {}),
-            },
-          }),
+      const response = await fetch(this.endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-goog-api-key": this.apiKey,
         },
-      );
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: {
+            response_mime_type: "application/json",
+            temperature: 0.7,
+            // Form data output scales with field count; base 512 + 40 per field.
+            maxOutputTokens: this.outputTokenBudget(
+              prompt,
+              Math.max(512, 512 + fields.length * 40),
+            ),
+            ...(this.isFlash ? { thinkingConfig: { thinkingBudget: 0 } } : {}),
+          },
+        }),
+      });
 
       if (!response.ok) {
         const errorBody = await response.text();
@@ -313,7 +326,10 @@ export class GeminiProvider implements AIProvider {
       try {
         parsed = safeJsonParse<AIFormData>(resultText);
       } catch (parseErr) {
-        console.error("[Gemini] generateFormData JSON parse FAILED. Raw text:", resultText);
+        console.error(
+          "[Gemini] generateFormData JSON parse FAILED. Raw text:",
+          resultText,
+        );
         throw parseErr;
       }
 
@@ -328,7 +344,9 @@ export class GeminiProvider implements AIProvider {
       return parsed;
     } catch (error) {
       geminiStats.error++;
-      aiLog(`[Gemini] generateFormData ERROR | ${error} | ${geminiStatsLabel()}`);
+      aiLog(
+        `[Gemini] generateFormData ERROR | ${error} | ${geminiStatsLabel()}`,
+      );
       console.error("Error generating form data with Gemini:", error);
       throw new Error("Failed to generate form data from Gemini.");
     }
@@ -359,13 +377,28 @@ export class GeminiProvider implements AIProvider {
           contents: [{ parts: [{ text: prompt }] }],
           generationConfig: {
             response_mime_type: "application/json",
+            response_schema: {
+              type: "OBJECT",
+              properties: {
+                tool: { type: "STRING" },
+                params: {
+                  type: "OBJECT",
+                  properties: {
+                    url: { type: "STRING" },
+                    label: { type: "STRING" },
+                    text: { type: "STRING" },
+                    direction: { type: "STRING" },
+                    message: { type: "STRING" },
+                    reason: { type: "STRING" },
+                  },
+                },
+                reasoning: { type: "STRING" },
+                confidenceEstimate: { type: "NUMBER" },
+              },
+              required: ["tool", "params", "reasoning", "confidenceEstimate"],
+            },
             temperature: 0.1,
-            // Agent tool JSON is always small (~150 tokens); base 512 is enough.
-            // Pro models always think first — outputTokenBudget adds proportional
-            // headroom so thinking doesn't crowd out the actual JSON response.
             maxOutputTokens: this.outputTokenBudget(prompt, 512),
-            // Flash: disable thinking entirely so it doesn't eat the output budget.
-            // Pro: omit thinkingConfig — Pro ignores thinkingBudget:0 anyway.
             ...(this.isFlash ? { thinkingConfig: { thinkingBudget: 0 } } : {}),
           },
         }),
@@ -380,7 +413,9 @@ export class GeminiProvider implements AIProvider {
       const data = await response.json();
       const candidate = data?.candidates?.[0];
       if (candidate?.finishReason === "MAX_TOKENS") {
-        console.warn("[Gemini] callAgentTool: response hit MAX_TOKENS limit — increase maxOutputTokens further if truncation persists.");
+        console.warn(
+          "[Gemini] callAgentTool: response hit MAX_TOKENS limit — increase maxOutputTokens further if truncation persists.",
+        );
       }
       if (!candidate || !candidate.content?.parts?.[0]?.text) {
         const reason = candidate?.finishReason ?? "no candidates";
@@ -404,8 +439,18 @@ export class GeminiProvider implements AIProvider {
       }
       // Allow the built-in tools plus any skill-defined custom tool names
       // (resolution happens later in prediction.ts; we only reject a truly missing tool field).
-      const builtInTools = ["navigate", "click", "type", "scroll", "done", "message"];
-      if (!builtInTools.includes(toolCall.tool) && !/^[a-z][a-z0-9_]{0,49}$/.test(toolCall.tool)) {
+      const builtInTools = [
+        "navigate",
+        "click",
+        "type",
+        "scroll",
+        "done",
+        "message",
+      ];
+      if (
+        !builtInTools.includes(toolCall.tool) &&
+        !/^[a-z][a-z0-9_]{0,49}$/.test(toolCall.tool)
+      ) {
         throw new Error(`callAgentTool: invalid tool name '${toolCall.tool}'`);
       }
       toolCall.params ??= {};

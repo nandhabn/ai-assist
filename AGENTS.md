@@ -151,6 +151,7 @@ chrome-extension-flow-recorder/
 ├── .env / .env.example             # API keys (VITE_*); never commit .env
 └── dist/                           # Output: popup.html, popup.js, background.js, content.js, manifest.json
 ```
+
 ---
 
 ## 5. Build & Load
@@ -183,17 +184,17 @@ chrome-extension-flow-recorder/
 
 Handled in `background/background.ts`:
 
-| Action            | Sender  | Behavior                                                     |
-| ----------------- | ------- | ------------------------------------------------------------ |
-| `START_RECORDING` | Popup   | Persists state; broadcasts to all tabs                       |
-| `STOP_RECORDING`  | Popup   | Persists state; broadcasts to all tabs                       |
-| `GET_EVENTS`      | Popup   | Returns stored events                                        |
-| `CLEAR_EVENTS`    | Popup   | Clears events from storage                                   |
-| `GET_SESSION_ID`  | Popup   | Returns current session ID                                   |
-| `SAVE_SESSION`    | Popup   | Appends current events as a saved session; clears events     |
-| `GENERATE_AI_SCRIPT` | Popup | Uses `prepareFlowData`; currently returns mocked result     |
-| `TOGGLE_AGENT`    | Popup   | Enables/disables the agent panel on all tabs                 |
-| `EVENT_RECORDED`  | Content | Keeps service worker alive; no processing                    |
+| Action               | Sender  | Behavior                                                 |
+| -------------------- | ------- | -------------------------------------------------------- |
+| `START_RECORDING`    | Popup   | Persists state; broadcasts to all tabs                   |
+| `STOP_RECORDING`     | Popup   | Persists state; broadcasts to all tabs                   |
+| `GET_EVENTS`         | Popup   | Returns stored events                                    |
+| `CLEAR_EVENTS`       | Popup   | Clears events from storage                               |
+| `GET_SESSION_ID`     | Popup   | Returns current session ID                               |
+| `SAVE_SESSION`       | Popup   | Appends current events as a saved session; clears events |
+| `GENERATE_AI_SCRIPT` | Popup   | Uses `prepareFlowData`; currently returns mocked result  |
+| `TOGGLE_AGENT`       | Popup   | Enables/disables the agent panel on all tabs             |
+| `EVENT_RECORDED`     | Content | Keeps service worker alive; no processing                |
 
 Popup and content script talk to the background via `chrome.runtime.sendMessage`; background uses `chrome.tabs.sendMessage` to notify tabs.
 
@@ -215,6 +216,7 @@ All are in `chrome.storage.local`.
 ## 9. Core Module: Content Script (`content/content.ts`)
 
 **Subdirectory layout:**
+
 - `content/agent/` — `agentManager.ts` (lifecycle/scheduling), `agentPanel.ts` (Shadow DOM UI), `execution.ts` (run predicted action), `prediction.ts` (prediction wiring)
 - `content/ai/` — `providers.ts` (instantiate AI providers), `rateLimit.ts` (rate limiting)
 - `content/form/` — `autofill.ts` (form fill assist), `formDetect.ts` (active form detection)
@@ -445,19 +447,20 @@ Evolve into a **production-ready intelligent web co-pilot**: stable and secure a
 
 ## 24. Files to Touch for Common Tasks
 
-| Task                                        | Files                                                                                                          |
-| ------------------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| Change recording behavior / what's captured | `content/content.ts`, `utils/elementAnalyzer.ts`                                                               |
-| Change prediction scoring                   | `utils/predictionEngine.ts`                                                                                    |
-| Change or add AI provider                   | `utils/aiProviderFactory.ts`, `utils/geminiProvider.ts` or `chatgptProvider.ts`, `types/ai.ts`                 |
-| Change agent lifecycle / scheduling         | `content/agent/agentManager.ts`                                                                                |
-| Change agent UI                             | `content/agent/agentPanel.ts`, `ui/agentPanel.ts`                                                              |
-| Change prediction execution                 | `content/agent/execution.ts`, `utils/agentExecutor.ts`                                                         |
-| Change form detection / autofill            | `content/form/formDetect.ts`, `content/form/autofill.ts`                                                       |
-| Change AI rate limiting                     | `content/ai/rateLimit.ts`, `utils/aiQueue.ts`                                                                  |
-| Change popup UI                             | `src/popup/**`                                                                                                 |
-| Change flow analysis / AI export            | `utils/flowAnalyzer.ts`, `utils/aiFormatter.ts`                                                                |
-| Add message or storage                      | `background/background.ts`, `utils/storage.ts`                                                                 |
-| Manifest / permissions                      | `public/manifest.json`                                                                                         |
-| Build / entry points                        | `vite.config.ts`, `vite.config.content.ts`                                                                     |
+| Task                                        | Files                                                                                          |
+| ------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| Change recording behavior / what's captured | `content/content.ts`, `utils/elementAnalyzer.ts`                                               |
+| Change prediction scoring                   | `utils/predictionEngine.ts`                                                                    |
+| Change or add AI provider                   | `utils/aiProviderFactory.ts`, `utils/geminiProvider.ts` or `chatgptProvider.ts`, `types/ai.ts` |
+| Change agent lifecycle / scheduling         | `content/agent/agentManager.ts`                                                                |
+| Change agent UI                             | `content/agent/agentPanel.ts`, `ui/agentPanel.ts`                                              |
+| Change prediction execution                 | `content/agent/execution.ts`, `utils/agentExecutor.ts`                                         |
+| Change form detection / autofill            | `content/form/formDetect.ts`, `content/form/autofill.ts`                                       |
+| Change AI rate limiting                     | `content/ai/rateLimit.ts`, `utils/aiQueue.ts`                                                  |
+| Change popup UI                             | `src/popup/**`                                                                                 |
+| Change flow analysis / AI export            | `utils/flowAnalyzer.ts`, `utils/aiFormatter.ts`                                                |
+| Add message or storage                      | `background/background.ts`, `utils/storage.ts`                                                 |
+| Manifest / permissions                      | `public/manifest.json`                                                                         |
+| Build / entry points                        | `vite.config.ts`, `vite.config.content.ts`                                                     |
+
 Use this context to make consistent, localized changes and to avoid breaking the contract between content script, background, and popup.

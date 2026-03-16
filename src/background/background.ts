@@ -24,14 +24,6 @@ async function setMission(tabId: number, prompt: string) {
 }
 // ---- end helpers ----
 
-// ---- ChatGPT tab detection ----
-function isChatGPTUrl(url: string | undefined): boolean {
-  return /^https:\/\/(chatgpt\.com|chat\.openai\.com)(\/$|$|\/)/i.test(
-    url || "",
-  );
-}
-// ---- end ChatGPT detection ----
-
 // ---- Per-tab agent-enabled helpers ----
 function agentEnabledKey(tabId: number) {
   return `flowRecorder_agentEnabled_${tabId}`;
@@ -247,15 +239,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         }
         case "GET_AGENT_ENABLED": {
           // Return the agent-enabled state for the requesting/specified tab.
-          // Agent is always disabled on ChatGPT tabs (the bridge handles those).
           const tabId = (request.tabId as number | undefined) ?? sender.tab?.id;
           if (tabId === undefined) {
             sendResponse({ enabled: false });
-            break;
-          }
-          const tab = await chrome.tabs.get(tabId).catch(() => null);
-          if (isChatGPTUrl(tab?.url)) {
-            sendResponse({ enabled: false, chatgptTab: true });
             break;
           }
           const enabled = await getTabAgentEnabled(tabId);
@@ -264,15 +250,9 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         }
         case "SET_AGENT_ENABLED": {
           // Store the per-tab agent state and relay TOGGLE_AGENT to that tab's content script.
-          // Silently ignore requests to enable the agent on ChatGPT tabs.
           const tabId = (request.tabId as number | undefined) ?? sender.tab?.id;
           if (tabId === undefined) {
             sendResponse({ ok: false, error: "No tab ID" });
-            break;
-          }
-          const tab = await chrome.tabs.get(tabId).catch(() => null);
-          if (isChatGPTUrl(tab?.url)) {
-            sendResponse({ ok: true, chatgptTab: true });
             break;
           }
           await setTabAgentEnabled(tabId, request.enabled);
@@ -298,75 +278,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           sendResponse({
             running: tabId !== undefined ? isAgentRunningForTab(tabId) : false,
           });
-          break;
-        }
-        case "CHATGPT_TAB_PROXY": {
-          // Relay prompt to the ChatGPT bridge tab — ACK immediately so channel doesn't time out.
-          // The bridge will call back via CHATGPT_BRIDGE_RESULT when done.
-          const chatgptTabs = await chrome.tabs.query({
-            url: "https://chatgpt.com/*",
-          });
-          const legacyTabs = await chrome.tabs.query({
-            url: "https://chat.openai.com/*",
-          });
-          const allTabs = [...chatgptTabs, ...legacyTabs];
-
-          if (allTabs.length === 0) {
-            sendResponse({
-              queued: false,
-              error: "No ChatGPT tab found. Please open chatgpt.com in a tab.",
-            });
-            break;
-          }
-
-          const targetTab = allTabs[0];
-          if (!targetTab.id) {
-            sendResponse({ queued: false, error: "ChatGPT tab has no ID" });
-            break;
-          }
-
-          // Fire-and-forget relay — do NOT await
-          chrome.tabs
-            .sendMessage(targetTab.id, {
-              action: "CHATGPT_BRIDGE_REQUEST",
-              prompt: request.prompt,
-              requestId: request.requestId,
-            })
-            .catch((err) =>
-              console.error("[FlowRecorder] Bridge relay error:", err),
-            );
-
-          console.log(
-            `[FlowRecorder] Queued to ChatGPT tab ${targetTab.id}, requestId: ${request.requestId}`,
-          );
-          sendResponse({ queued: true });
-          break;
-        }
-        case "CHATGPT_BRIDGE_RESULT": {
-          // Bridge finished — store result in session storage for polling content script
-          const storageKey = `__chatgpt_bridge_${request.requestId}`;
-          await chrome.storage.session.set({
-            [storageKey]: {
-              success: request.success,
-              response: request.response,
-              error: request.error,
-            },
-          });
-          console.log(
-            `[FlowRecorder] Bridge result stored for ${request.requestId}, success: ${request.success}`,
-          );
-          sendResponse({ ok: true });
-          break;
-        }
-        case "CHATGPT_BRIDGE_POLL": {
-          // Content scripts can't access chrome.storage.session — proxy the poll through here
-          const storageKey = `__chatgpt_bridge_${request.requestId}`;
-          const stored = await chrome.storage.session.get(storageKey);
-          const result = stored[storageKey] ?? null;
-          if (result) {
-            await chrome.storage.session.remove(storageKey);
-          }
-          sendResponse({ result });
           break;
         }
         case "NOVA_CONVERSE": {

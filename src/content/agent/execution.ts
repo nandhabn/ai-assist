@@ -4,7 +4,7 @@
  */
 
 import type { AgentToolCall } from "@/types/ai";
-import type { RankedPrediction } from "@/utils/predictionEngine";
+import type { RankedPrediction } from "@/types/ai";
 
 // ─── On-screen agent message toast ───────────────────────────────────────────
 
@@ -50,10 +50,13 @@ export function showAgentMessage(
   // Make the toast interactive so the close button is clickable
   toast.style.pointerEvents = "auto";
 
-  const colors: Record<typeof type, { bg: string; border: string; icon: string }> = {
-    info:    { bg: "#1e293b", border: "#334155", icon: "ℹ️" },
+  const colors: Record<
+    typeof type,
+    { bg: string; border: string; icon: string }
+  > = {
+    info: { bg: "#1e293b", border: "#334155", icon: "ℹ️" },
     success: { bg: "#14532d", border: "#166534", icon: "✅" },
-    error:   { bg: "#450a0a", border: "#7f1d1d", icon: "❌" },
+    error: { bg: "#450a0a", border: "#7f1d1d", icon: "❌" },
   };
   const c = colors[type];
   Object.assign(toast.style, {
@@ -65,8 +68,8 @@ export function showAgentMessage(
     `<span style="font-size:18px;flex-shrink:0">${c.icon}</span>` +
     `<span style="flex:1">${message}</span>` +
     `<button id="${TOAST_ID}-close" style="background:none;border:none;color:#94a3b8;` +
-      `font-size:16px;cursor:pointer;padding:0 0 0 8px;line-height:1;flex-shrink:0;` +
-      `margin-top:-2px" title="Dismiss">\u2715</button>`;
+    `font-size:16px;cursor:pointer;padding:0 0 0 8px;line-height:1;flex-shrink:0;` +
+    `margin-top:-2px" title="Dismiss">\u2715</button>`;
 
   // Fade in
   requestAnimationFrame(() => {
@@ -82,11 +85,13 @@ export function showAgentMessage(
   (toast as any)._dismissTimer = setTimeout(dismiss, durationMs);
 
   // Close button click
-  document.getElementById(`${TOAST_ID}-close`)?.addEventListener("click", (e) => {
-    e.stopPropagation();
-    clearTimeout((toast as any)._dismissTimer);
-    dismiss();
-  });
+  document
+    .getElementById(`${TOAST_ID}-close`)
+    ?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      clearTimeout((toast as any)._dismissTimer);
+      dismiss();
+    });
 }
 
 // ─── Element finders ─────────────────────────────────────────────────────────
@@ -99,9 +104,21 @@ function scoreElement(el: HTMLElement): number {
   const vpH = window.innerHeight;
 
   // Fully inside viewport
-  if (rect.top >= 0 && rect.bottom <= vpH && rect.left >= 0 && rect.right <= vpW) score += 10;
+  if (
+    rect.top >= 0 &&
+    rect.bottom <= vpH &&
+    rect.left >= 0 &&
+    rect.right <= vpW
+  )
+    score += 10;
   // Partially visible in viewport
-  else if (rect.top < vpH && rect.bottom > 0 && rect.left < vpW && rect.right > 0) score += 5;
+  else if (
+    rect.top < vpH &&
+    rect.bottom > 0 &&
+    rect.left < vpW &&
+    rect.right > 0
+  )
+    score += 5;
 
   // Larger area = more prominent (capped so giant containers don't dominate)
   const area = rect.width * rect.height;
@@ -111,13 +128,15 @@ function scoreElement(el: HTMLElement): number {
   if (
     el.getAttribute("aria-hidden") !== "true" &&
     el.closest('[aria-hidden="true"]') === null
-  ) score += 3;
+  )
+    score += 3;
 
   // Semantic interactive elements rank higher than generic divs with tabindex
   const tag = el.tagName.toLowerCase();
   if (["button", "a", "input", "select", "textarea"].includes(tag)) score += 2;
   const role = el.getAttribute("role");
-  if (role && ["button", "link", "menuitem", "tab", "option"].includes(role)) score += 2;
+  if (role && ["button", "link", "menuitem", "tab", "option"].includes(role))
+    score += 2;
 
   // Enabled beats disabled
   if (!(el as HTMLButtonElement).disabled) score += 1;
@@ -136,7 +155,8 @@ function scoreElement(el: HTMLElement): number {
 
   // Modal/dialog awareness — when a dialog overlay is open, elements inside it
   // are almost always the intended target; elements outside are visually blocked.
-  const MODAL_SELECTOR = '[role="dialog"], [aria-modal="true"], [role="alertdialog"]';
+  const MODAL_SELECTOR =
+    '[role="dialog"], [aria-modal="true"], [role="alertdialog"]';
   if (el.closest(MODAL_SELECTOR)) {
     // Inside a modal: strong boost so the dialog's buttons always win.
     score += 12;
@@ -199,14 +219,28 @@ export interface LabelCandidate {
 export function findAllElementsByLabel(label: string): LabelCandidate[] {
   const needle = label.toLowerCase().trim();
   const selectors = [
-    "button", "a", "input:not([type=hidden])", "select", "textarea",
-    '[role="button"]', '[role="link"]', '[role="menuitem"]', '[role="tab"]',
-    '[role="option"]', "[tabindex]",
+    "button",
+    "a",
+    "input:not([type=hidden])",
+    "select",
+    "textarea",
+    '[role="button"]',
+    '[role="link"]',
+    '[role="menuitem"]',
+    '[role="tab"]',
+    '[role="option"]',
+    "[tabindex]",
   ].join(",");
 
-  const visible = Array.from(document.querySelectorAll<HTMLElement>(selectors)).filter((el) => {
+  const visible = Array.from(
+    document.querySelectorAll<HTMLElement>(selectors),
+  ).filter((el) => {
     const s = window.getComputedStyle(el);
-    return s.display !== "none" && s.visibility !== "hidden" && (el.offsetWidth > 0 || el.offsetHeight > 0);
+    return (
+      s.display !== "none" &&
+      s.visibility !== "hidden" &&
+      (el.offsetWidth > 0 || el.offsetHeight > 0)
+    );
   });
 
   const seen = new Set<HTMLElement>();
@@ -241,18 +275,26 @@ export function findAllElementsByLabel(label: string): LabelCandidate[] {
  *   [2] score=8   nav > a[href="/compose"]                    pos=(30,400)
  *   [3] score=3   footer > div > span                         pos=(600,900)
  */
-export function buildDisambiguationGraph(label: string, candidates: LabelCandidate[]): string {
+export function buildDisambiguationGraph(
+  label: string,
+  candidates: LabelCandidate[],
+): string {
   const lines = [`${candidates.length} elements match "${label}":`];
   for (let i = 0; i < candidates.length; i++) {
     const { el, score, domPath } = candidates[i];
     const rect = el.getBoundingClientRect();
-    const snippet = (el.textContent ?? "").trim().slice(0, 40).replace(/\s+/g, " ");
+    const snippet = (el.textContent ?? "")
+      .trim()
+      .slice(0, 40)
+      .replace(/\s+/g, " ");
     lines.push(
       `  [${i + 1}] score=${score}  ${domPath}  pos=(${Math.round(rect.left)},${Math.round(rect.top)})` +
         (snippet ? `  text="${snippet}"` : ""),
     );
   }
-  lines.push('To target a specific one, refine the label (e.g. add the data-testid value or parent context).');
+  lines.push(
+    "To target a specific one, refine the label (e.g. add the data-testid value or parent context).",
+  );
   return lines.join("\n");
 }
 
@@ -267,7 +309,9 @@ export function findElementByLabel(label: string): HTMLElement | null {
   if (candidates.length === 0) return null;
 
   if (candidates.length > 1) {
-    console.log(`[Agent] "${label}" matched ${candidates.length} elements — using top-scored:`);
+    console.log(
+      `[Agent] "${label}" matched ${candidates.length} elements — using top-scored:`,
+    );
     candidates.forEach(({ score, domPath }, i) =>
       console.log(`  [${i + 1}] score=${score}  ${domPath}`),
     );
@@ -282,17 +326,25 @@ export function findElementByLabel(label: string): HTMLElement | null {
  */
 export function findNavHrefByLabel(label: string): string | null {
   const needle = label.toLowerCase().trim();
-  const anchors = Array.from(document.querySelectorAll<HTMLAnchorElement>("a[href]"));
+  const anchors = Array.from(
+    document.querySelectorAll<HTMLAnchorElement>("a[href]"),
+  );
   const valid = anchors.filter((a) => {
     const h = a.getAttribute("href") ?? "";
     return h && !h.startsWith("#") && !h.startsWith("javascript:");
   });
 
-  const exact = valid.find((a) => (a.textContent ?? "").toLowerCase().trim() === needle);
+  const exact = valid.find(
+    (a) => (a.textContent ?? "").toLowerCase().trim() === needle,
+  );
   if (exact) return exact.href;
-  const starts = valid.find((a) => (a.textContent ?? "").toLowerCase().trim().startsWith(needle));
+  const starts = valid.find((a) =>
+    (a.textContent ?? "").toLowerCase().trim().startsWith(needle),
+  );
   if (starts) return starts.href;
-  const includes = valid.find((a) => (a.textContent ?? "").toLowerCase().includes(needle));
+  const includes = valid.find((a) =>
+    (a.textContent ?? "").toLowerCase().includes(needle),
+  );
   if (includes) return includes.href;
 
   const attrMatch = valid.find((a) =>
@@ -360,23 +412,27 @@ export interface ExecuteResult {
  * Executes a structured AgentToolCall (navigate / click / type / scroll / message / done).
  * Returns { success, failureReason? } so callers can feed the error back to the AI.
  */
-export async function executeAgentToolCall(toolCall: AgentToolCall): Promise<ExecuteResult> {
+export async function executeAgentToolCall(
+  toolCall: AgentToolCall,
+): Promise<ExecuteResult> {
   const { tool, params } = toolCall;
   console.log(`[Agent Tool] ${tool}`, params);
 
   // ── Skill tool: run the pre-resolved step sequence ────────────────────────
   if (toolCall.skillSteps && toolCall.skillSteps.length > 0) {
-    console.log(`[Agent Tool] Running skill tool "${tool}" (${toolCall.skillSteps.length} steps)`);
+    console.log(
+      `[Agent Tool] Running skill tool "${tool}" (${toolCall.skillSteps.length} steps)`,
+    );
     for (const step of toolCall.skillSteps) {
       const stepCall: AgentToolCall = {
         tool: step.tool,
         params: {
-          label:     step.label,
-          text:      step.text,
-          url:       step.url,
+          label: step.label,
+          text: step.text,
+          url: step.url,
           direction: step.direction,
-          message:   step.message,
-          ms:        step.ms,
+          message: step.message,
+          ms: step.ms,
         },
         reasoning: `skill step: ${step.tool}`,
         confidenceEstimate: 1,
@@ -392,7 +448,10 @@ export async function executeAgentToolCall(toolCall: AgentToolCall): Promise<Exe
   switch (tool) {
     case "navigate": {
       if (!params.url) {
-        return { success: false, failureReason: "navigate tool called without a URL" };
+        return {
+          success: false,
+          failureReason: "navigate tool called without a URL",
+        };
       }
       window.location.href = params.url;
       return { success: true };
@@ -405,15 +464,24 @@ export async function executeAgentToolCall(toolCall: AgentToolCall): Promise<Exe
       if (candidates.length > 0) {
         const el = candidates[0].el;
         if (candidates.length > 1) {
-          console.log(`[Agent Tool] click: multiple matches for "${label}" — ${buildDisambiguationGraph(label, candidates)}`);
+          console.log(
+            `[Agent Tool] click: multiple matches for "${label}" — ${buildDisambiguationGraph(label, candidates)}`,
+          );
         }
         el.scrollIntoView({ behavior: "instant", block: "center" });
         await new Promise<void>((r) => setTimeout(r, 80));
         // Prevent new-tab navigation: patch the anchor (or the nearest ancestor anchor)
         // so target="_blank" links stay in the current tab.
         const anchor =
-          el instanceof HTMLAnchorElement ? el : el.closest<HTMLAnchorElement>("a[href]");
-        if (anchor && anchor.href && anchor.target && anchor.target !== "_self") {
+          el instanceof HTMLAnchorElement
+            ? el
+            : el.closest<HTMLAnchorElement>("a[href]");
+        if (
+          anchor &&
+          anchor.href &&
+          anchor.target &&
+          anchor.target !== "_self"
+        ) {
           anchor.target = "_self";
           anchor.rel = "noreferrer";
         }
@@ -447,18 +515,25 @@ export async function executeAgentToolCall(toolCall: AgentToolCall): Promise<Exe
 
         for (const char of Array.from(text)) {
           const keyOpts: KeyboardEventInit = {
-            key: char, code: `Key${char.toUpperCase()}`,
-            keyCode: char.charCodeAt(0), which: char.charCodeAt(0),
-            bubbles: true, cancelable: true,
+            key: char,
+            code: `Key${char.toUpperCase()}`,
+            keyCode: char.charCodeAt(0),
+            which: char.charCodeAt(0),
+            bubbles: true,
+            cancelable: true,
           };
           el.dispatchEvent(new KeyboardEvent("keydown", keyOpts));
           el.dispatchEvent(new KeyboardEvent("keypress", keyOpts));
           // Insert the character at the current caret position
           document.execCommand("insertText", false, char);
-          el.dispatchEvent(new InputEvent("input", {
-            bubbles: true, cancelable: true,
-            inputType: "insertText", data: char,
-          }));
+          el.dispatchEvent(
+            new InputEvent("input", {
+              bubbles: true,
+              cancelable: true,
+              inputType: "insertText",
+              data: char,
+            }),
+          );
           el.dispatchEvent(new KeyboardEvent("keyup", keyOpts));
           // Small delay between characters so the site sees them as real typing
           await new Promise<void>((r) => setTimeout(r, 20));
@@ -468,13 +543,23 @@ export async function executeAgentToolCall(toolCall: AgentToolCall): Promise<Exe
       // Helper: type into a standard input/textarea
       const typeIntoInput = (el: HTMLInputElement | HTMLTextAreaElement) => {
         const tag = el.tagName.toLowerCase();
-        const proto = tag === "textarea"
-          ? window.HTMLTextAreaElement.prototype
-          : window.HTMLInputElement.prototype;
-        const nativeSetter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
+        const proto =
+          tag === "textarea"
+            ? window.HTMLTextAreaElement.prototype
+            : window.HTMLInputElement.prototype;
+        const nativeSetter = Object.getOwnPropertyDescriptor(
+          proto,
+          "value",
+        )?.set;
         if (nativeSetter) nativeSetter.call(el, text);
         else el.value = text;
-        el.dispatchEvent(new InputEvent("input", { bubbles: true, cancelable: true, data: text }));
+        el.dispatchEvent(
+          new InputEvent("input", {
+            bubbles: true,
+            cancelable: true,
+            data: text,
+          }),
+        );
         el.dispatchEvent(new Event("change", { bubbles: true }));
       };
 
@@ -496,12 +581,19 @@ export async function executeAgentToolCall(toolCall: AgentToolCall): Promise<Exe
       }
 
       // Search among standard input/textarea elements first.
-      const typeableSelectors = "input:not([type=hidden]):not([type=submit]):not([type=button]):not([type=reset]), textarea";
+      const typeableSelectors =
+        "input:not([type=hidden]):not([type=submit]):not([type=button]):not([type=reset]), textarea";
       const typeableAll = Array.from(
-        document.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>(typeableSelectors),
+        document.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>(
+          typeableSelectors,
+        ),
       ).filter((el) => {
         const style = window.getComputedStyle(el);
-        return style.display !== "none" && style.visibility !== "hidden" && el.offsetWidth > 0;
+        return (
+          style.display !== "none" &&
+          style.visibility !== "hidden" &&
+          el.offsetWidth > 0
+        );
       });
 
       const typeableText = (el: HTMLElement) =>
@@ -513,7 +605,11 @@ export async function executeAgentToolCall(toolCall: AgentToolCall): Promise<Exe
           el.getAttribute("name"),
           (() => {
             if (!el.id) return null;
-            return document.querySelector(`label[for="${el.id}"]`)?.textContent?.trim() ?? null;
+            return (
+              document
+                .querySelector(`label[for="${el.id}"]`)
+                ?.textContent?.trim() ?? null
+            );
           })(),
         ]
           .filter(Boolean)
@@ -526,18 +622,33 @@ export async function executeAgentToolCall(toolCall: AgentToolCall): Promise<Exe
       // Collect all matching inputs, score them, pick the best
       const matchedInputs = typeableAll.filter((e) => {
         const t = typeableText(e);
-        return t === needle || t.includes(needle) || (needle && needle.includes(t) && t.length > 2);
+        return (
+          t === needle ||
+          t.includes(needle) ||
+          (needle && needle.includes(t) && t.length > 2)
+        );
       });
       if (matchedInputs.length > 1) {
-        console.log(`[Agent Tool] type: ${matchedInputs.length} inputs match "${label}" — using highest-scored`);
-        matchedInputs.forEach((e, i) => console.log(`  [${i + 1}] ${buildDomPath(e)} score=${scoreElement(e)}`));
+        console.log(
+          `[Agent Tool] type: ${matchedInputs.length} inputs match "${label}" — using highest-scored`,
+        );
+        matchedInputs.forEach((e, i) =>
+          console.log(
+            `  [${i + 1}] ${buildDomPath(e)} score=${scoreElement(e)}`,
+          ),
+        );
       }
       let inputEl: HTMLInputElement | HTMLTextAreaElement | null =
-        matchedInputs.sort((a, b) => scoreElement(b) - scoreElement(a))[0] ?? null;
+        matchedInputs.sort((a, b) => scoreElement(b) - scoreElement(a))[0] ??
+        null;
 
       if (!inputEl) {
         const broad = findElementByLabel(label);
-        if (broad && (broad.tagName.toLowerCase() === "input" || broad.tagName.toLowerCase() === "textarea")) {
+        if (
+          broad &&
+          (broad.tagName.toLowerCase() === "input" ||
+            broad.tagName.toLowerCase() === "textarea")
+        ) {
           inputEl = broad as HTMLInputElement | HTMLTextAreaElement;
         }
       }
@@ -553,10 +664,16 @@ export async function executeAgentToolCall(toolCall: AgentToolCall): Promise<Exe
 
       // No standard input found — search for a visible contenteditable element.
       const contentEditables = Array.from(
-        document.querySelectorAll<HTMLElement>("[contenteditable='true'], [contenteditable='']"),
+        document.querySelectorAll<HTMLElement>(
+          "[contenteditable='true'], [contenteditable='']",
+        ),
       ).filter((el) => {
         const style = window.getComputedStyle(el);
-        return style.display !== "none" && style.visibility !== "hidden" && el.offsetWidth > 0;
+        return (
+          style.display !== "none" &&
+          style.visibility !== "hidden" &&
+          el.offsetWidth > 0
+        );
       });
 
       // Score and pick best contenteditable candidate
@@ -575,8 +692,14 @@ export async function executeAgentToolCall(toolCall: AgentToolCall): Promise<Exe
       let ceEl: HTMLElement | null = null;
       if (matchedCEs.length > 0) {
         if (matchedCEs.length > 1) {
-          console.log(`[Agent Tool] type: ${matchedCEs.length} contenteditable elements match "${label}" — using highest-scored`);
-          matchedCEs.forEach((e, i) => console.log(`  [${i + 1}] ${buildDomPath(e)} score=${scoreElement(e)}`));
+          console.log(
+            `[Agent Tool] type: ${matchedCEs.length} contenteditable elements match "${label}" — using highest-scored`,
+          );
+          matchedCEs.forEach((e, i) =>
+            console.log(
+              `  [${i + 1}] ${buildDomPath(e)} score=${scoreElement(e)}`,
+            ),
+          );
         }
         ceEl = matchedCEs.sort((a, b) => scoreElement(b) - scoreElement(a))[0];
       } else if (sortedCEs.length > 0) {
@@ -595,9 +718,10 @@ export async function executeAgentToolCall(toolCall: AgentToolCall): Promise<Exe
 
       // Build a disambiguation graph for any elements that broadly matched, to help the AI retry
       const allCandidates = findAllElementsByLabel(label);
-      const disambig = allCandidates.length > 0
-        ? `\n${buildDisambiguationGraph(label, allCandidates)}`
-        : "";
+      const disambig =
+        allCandidates.length > 0
+          ? `\n${buildDisambiguationGraph(label, allCandidates)}`
+          : "";
       const reason = label.trim()
         ? `No input, textarea, or contenteditable found matching label "${label}" — check label spelling or scroll to reveal the field${disambig}`
         : `No focused or visible input/textarea/contenteditable — make sure a field is focused or provide a label`;
@@ -628,7 +752,10 @@ export async function executeAgentToolCall(toolCall: AgentToolCall): Promise<Exe
     }
 
     case "delay": {
-      const ms = typeof params.ms === "number" ? params.ms : parseInt(String(params.ms ?? "1000"), 10);
+      const ms =
+        typeof params.ms === "number"
+          ? params.ms
+          : parseInt(String(params.ms ?? "1000"), 10);
       const wait = isNaN(ms) ? 1000 : Math.min(ms, 30000); // cap at 30s
       console.log(`[Agent Tool] delay — waiting ${wait}ms`);
       await new Promise<void>((r) => setTimeout(r, wait));
@@ -646,7 +773,9 @@ export async function executeAgentToolCall(toolCall: AgentToolCall): Promise<Exe
  * Stores any failure reason in state.lastActionFailure so the next predict
  * call can include it in the postActionObservation sent to the AI.
  */
-export async function executeForAgent(prediction: RankedPrediction): Promise<boolean> {
+export async function executeForAgent(
+  prediction: RankedPrediction,
+): Promise<boolean> {
   // Import state lazily to avoid a circular import at module level
   const { state } = await import("../state");
   state.lastActionFailure = null;

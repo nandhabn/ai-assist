@@ -9,15 +9,23 @@ export function aiLog(msg: string): void {
   console.log(`[AI Call Log] [${ts}] ${msg}`);
 }
 
-export const AI_MIN_INTERVAL = 10_000;      // 10 s minimum between any AI call
-export const AI_MAX_CALLS_PER_WINDOW = 4;   // Max 4 AI calls per window
-export const AI_WINDOW_DURATION = 120_000;  // 2-minute sliding window
+export const AI_MIN_INTERVAL = 10_000; // 10 s minimum between any AI call
+export const AI_MAX_CALLS_PER_WINDOW = 4; // Max 4 AI calls per window
+export const AI_WINDOW_DURATION = 120_000; // 2-minute sliding window
 
-type RateLimiterState = { lastCall: number; count: number; windowStart: number };
+type RateLimiterState = {
+  lastCall: number;
+  count: number;
+  windowStart: number;
+};
 
 export function getRLState(): RateLimiterState {
   if (!(window as any).__aiRateLimiter) {
-    (window as any).__aiRateLimiter = { lastCall: 0, count: 0, windowStart: Date.now() };
+    (window as any).__aiRateLimiter = {
+      lastCall: 0,
+      count: 0,
+      windowStart: Date.now(),
+    };
   }
   return (window as any).__aiRateLimiter as RateLimiterState;
 }
@@ -29,7 +37,9 @@ export function canMakeAICall(): boolean {
     s.count = 0;
     s.windowStart = now;
   }
-  return now - s.lastCall >= AI_MIN_INTERVAL && s.count < AI_MAX_CALLS_PER_WINDOW;
+  return (
+    now - s.lastCall >= AI_MIN_INTERVAL && s.count < AI_MAX_CALLS_PER_WINDOW
+  );
 }
 
 export function recordAICall(): void {

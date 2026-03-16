@@ -4,7 +4,14 @@
 
 import type { FormFieldInfo } from "@/types/ai";
 import { state } from "../state";
-import { aiLog, canMakeAICall, recordAICall, AI_MAX_CALLS_PER_WINDOW, AI_MIN_INTERVAL, getRLState } from "../ai/rateLimit";
+import {
+  aiLog,
+  canMakeAICall,
+  recordAICall,
+  AI_MAX_CALLS_PER_WINDOW,
+  AI_MIN_INTERVAL,
+  getRLState,
+} from "../ai/rateLimit";
 import { getAIProvider } from "../ai/providers";
 
 // ─── AI-powered generator ─────────────────────────────────────────────────────
@@ -20,7 +27,9 @@ export async function generateAutofillData(
   },
 ): Promise<Record<string, string>> {
   if (state.isAutofillGenerating) {
-    console.log("[Flow Agent] Autofill generation already in progress, waiting...");
+    console.log(
+      "[Flow Agent] Autofill generation already in progress, waiting...",
+    );
     return state.cachedAutofillData || generateBasicFormData(fields);
   }
 
@@ -43,38 +52,65 @@ export async function generateAutofillData(
   if (state.aiProvider && canMakeAICall()) {
     state.isAutofillGenerating = true;
     try {
-      aiLog(`Form data AI call triggered | Fields: ${fields.length} | Page: ${document.title || window.location.pathname}`);
+      aiLog(
+        `Form data AI call triggered | Fields: ${fields.length} | Page: ${document.title || window.location.pathname}`,
+      );
       recordAICall();
       console.log("[Flow Agent] Requesting AI-generated form data...");
 
       const pageContext = document.title || window.location.pathname;
-      const missionPrefix = state.currentMission ? `User mission: ${state.currentMission}. ` : "";
+      const missionPrefix = state.currentMission
+        ? `User mission: ${state.currentMission}. `
+        : "";
       const enrichedContext = retryContext?.fieldErrors.length
         ? `${missionPrefix}${pageContext}. Previous fill attempt had validation errors — please correct: ` +
-          retryContext.fieldErrors.map((e) => `"${e.fieldName || e.fieldId}": ${e.errorText}`).join("; ")
+          retryContext.fieldErrors
+            .map((e) => `"${e.fieldName || e.fieldId}": ${e.errorText}`)
+            .join("; ")
         : `${missionPrefix}${pageContext}`;
 
-      const result = await state.aiProvider.generateFormData(fields, enrichedContext);
+      const result = await state.aiProvider.generateFormData(
+        fields,
+        enrichedContext,
+      );
 
       if (result.fieldValues && Object.keys(result.fieldValues).length > 0) {
-        aiLog(`Form data AI call SUCCESS | Fields generated: ${Object.keys(result.fieldValues).length}`);
-        console.log("[Flow Agent] AI-generated form data received:", result.fieldValues);
+        aiLog(
+          `Form data AI call SUCCESS | Fields generated: ${Object.keys(result.fieldValues).length}`,
+        );
+        console.log(
+          "[Flow Agent] AI-generated form data received:",
+          result.fieldValues,
+        );
 
         const expandedData: Record<string, string> = {};
         for (const field of fields) {
-          const identifiers = [field.name, field.id, field.labelText, field.ariaLabel, field.placeholder].filter(Boolean);
+          const identifiers = [
+            field.name,
+            field.id,
+            field.labelText,
+            field.ariaLabel,
+            field.placeholder,
+          ].filter(Boolean);
           let value: string | undefined;
 
           for (const key of identifiers) {
-            if (result.fieldValues[key]) { value = result.fieldValues[key]; break; }
+            if (result.fieldValues[key]) {
+              value = result.fieldValues[key];
+              break;
+            }
           }
 
           if (!value) {
-            const normalize = (s: string) => (s || "").toLowerCase().replace(/[\s_-]/g, "");
+            const normalize = (s: string) =>
+              (s || "").toLowerCase().replace(/[\s_-]/g, "");
             for (const key of identifiers) {
               const normKey = normalize(key);
               for (const [aiKey, aiVal] of Object.entries(result.fieldValues)) {
-                if (normalize(aiKey) === normKey) { value = aiVal; break; }
+                if (normalize(aiKey) === normKey) {
+                  value = aiVal;
+                  break;
+                }
               }
               if (value) break;
             }
@@ -83,7 +119,12 @@ export async function generateAutofillData(
           if (!value) continue;
 
           // Single canonical key: id → name → labelText → ariaLabel → placeholder
-          const canonicalKey = field.id || field.name || field.labelText || field.ariaLabel || field.placeholder;
+          const canonicalKey =
+            field.id ||
+            field.name ||
+            field.labelText ||
+            field.ariaLabel ||
+            field.placeholder;
           if (canonicalKey) expandedData[canonicalKey] = value;
         }
 
@@ -93,13 +134,18 @@ export async function generateAutofillData(
       }
     } catch (error) {
       aiLog(`Form data AI call FAILED | Error: ${error}`);
-      console.warn("[Flow Agent] AI form data generation failed, falling back to basic generator:", error);
+      console.warn(
+        "[Flow Agent] AI form data generation failed, falling back to basic generator:",
+        error,
+      );
     } finally {
       state.isAutofillGenerating = false;
     }
   } else if (!state.aiProvider) {
     aiLog("Form data AI call SKIPPED (no provider configured)");
-    console.log("[Flow Agent] No AI provider available, using basic data generator");
+    console.log(
+      "[Flow Agent] No AI provider available, using basic data generator",
+    );
   } else {
     const s = getRLState();
     aiLog(
@@ -119,12 +165,18 @@ export async function generateAutofillData(
 /**
  * Generates simple test data based on field type heuristics (no AI needed).
  */
-export function generateBasicFormData(fields: FormFieldInfo[]): Record<string, string> {
+export function generateBasicFormData(
+  fields: FormFieldInfo[],
+): Record<string, string> {
   const data: Record<string, string> = {};
-  const normalize = (str: string) => (str || "").toLowerCase().replace(/[\s_-]/g, "");
+  const normalize = (str: string) =>
+    (str || "").toLowerCase().replace(/[\s_-]/g, "");
   const randomString = (len: number) => {
     const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
-    return Array.from({ length: len }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
+    return Array.from(
+      { length: len },
+      () => chars[Math.floor(Math.random() * chars.length)],
+    ).join("");
   };
 
   const firstName = "Alex";
@@ -134,7 +186,13 @@ export function generateBasicFormData(fields: FormFieldInfo[]): Record<string, s
   const phone = `+1-555-${Math.floor(Math.random() * 900 + 100)}-${Math.floor(Math.random() * 9000 + 1000)}`;
 
   for (const field of fields) {
-    const hints = [field.name, field.id, field.placeholder, field.labelText, field.ariaLabel]
+    const hints = [
+      field.name,
+      field.id,
+      field.placeholder,
+      field.labelText,
+      field.ariaLabel,
+    ]
       .map(normalize)
       .join(" ");
     const type = field.type.toLowerCase();
@@ -142,20 +200,39 @@ export function generateBasicFormData(fields: FormFieldInfo[]): Record<string, s
     let value = "";
     if (field.options && field.options.length > 0) value = field.options[0];
     else if (type === "email" || hints.includes("email")) value = email;
-    else if (type === "password" || hints.includes("password")) value = password;
-    else if (type === "tel" || hints.includes("phone") || hints.includes("mobile")) value = phone;
-    else if (hints.includes("firstname") || hints.includes("first")) value = firstName;
-    else if (hints.includes("lastname") || hints.includes("last")) value = lastName;
+    else if (type === "password" || hints.includes("password"))
+      value = password;
+    else if (
+      type === "tel" ||
+      hints.includes("phone") ||
+      hints.includes("mobile")
+    )
+      value = phone;
+    else if (hints.includes("firstname") || hints.includes("first"))
+      value = firstName;
+    else if (hints.includes("lastname") || hints.includes("last"))
+      value = lastName;
     else if (hints.includes("name")) value = `${firstName} ${lastName}`;
-    else if (type === "number") value = String(Math.floor(Math.random() * 10000));
+    else if (type === "number")
+      value = String(Math.floor(Math.random() * 10000));
     else if (type === "date") value = "1990-06-15";
     else value = `Test ${randomString(6)}`;
 
     if (!value) continue;
 
-    const identifiers = [field.name, field.id, field.labelText, field.ariaLabel, field.placeholder].filter(Boolean);
-    for (const id of identifiers) { data[id] = value; }
-    if (identifiers.length === 0) { data[`field_${type}_${fields.indexOf(field)}`] = value; }
+    const identifiers = [
+      field.name,
+      field.id,
+      field.labelText,
+      field.ariaLabel,
+      field.placeholder,
+    ].filter(Boolean);
+    for (const id of identifiers) {
+      data[id] = value;
+    }
+    if (identifiers.length === 0) {
+      data[`field_${type}_${fields.indexOf(field)}`] = value;
+    }
   }
 
   return data;

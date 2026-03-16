@@ -96,7 +96,8 @@ function safeJsonParse<T>(raw: string): T {
     return JSON.parse(text) as T;
   } catch (firstErr) {
     const msg = (firstErr as Error).message ?? "";
-    if (!msg.includes("Unterminated") && !msg.includes("Unexpected end")) throw firstErr;
+    if (!msg.includes("Unterminated") && !msg.includes("Unexpected end"))
+      throw firstErr;
 
     let repaired = text;
     const quoteCount = (repaired.match(/(?<!\\)"/g) ?? []).length;
@@ -149,7 +150,12 @@ function buildBatchPredictionPrompt(contexts: CompactContext[]): string {
           : "";
 
       const planSection = ctx.plan
-        ? `\n    == PLAN ==\n${ctx.plan.split("\n").map((l) => `    ${l}`).join("\n")}\n    == EXECUTE PLAN STEP ${ctx.currentPlanStep ?? 1} NOW ==\n`
+        ? `\n    == PLAN ==\n${ctx.plan
+            .split("\n")
+            .map((l) => `    ${l}`)
+            .join(
+              "\n",
+            )}\n    == EXECUTE PLAN STEP ${ctx.currentPlanStep ?? 1} NOW ==\n`
         : "";
 
       return `--- Context ${i} ---
@@ -208,7 +214,8 @@ export class BatchingAIProvider implements AIProvider {
   private stats = { batches: 0, requests: 0, saved: 0 };
 
   constructor(apiKey: string, options: BatchingProviderOptions = {}) {
-    if (!apiKey) throw new Error("BatchingAIProvider requires a Gemini API key.");
+    if (!apiKey)
+      throw new Error("BatchingAIProvider requires a Gemini API key.");
     this.apiKey = apiKey;
     this.flushWindowMs = options.flushWindowMs ?? 80;
     this.maxBatchSize = options.maxBatchSize ?? 8;
@@ -318,7 +325,10 @@ export class BatchingAIProvider implements AIProvider {
       try {
         predictions = safeJsonParse<AIPrediction[]>(raw);
       } catch (parseErr) {
-        console.error("[BatchingProvider] Batch JSON parse FAILED. Raw text:", raw);
+        console.error(
+          "[BatchingProvider] Batch JSON parse FAILED. Raw text:",
+          raw,
+        );
         throw parseErr;
       }
 
@@ -331,7 +341,9 @@ export class BatchingAIProvider implements AIProvider {
         );
       }
 
-      log(`Batch response received — distributing ${predictions.length} results.`);
+      log(
+        `Batch response received — distributing ${predictions.length} results.`,
+      );
       for (let i = 0; i < batch.length; i++) {
         const p = predictions[i];
         if (
@@ -401,7 +413,10 @@ export class BatchingAIProvider implements AIProvider {
     try {
       prediction = safeJsonParse<AIPrediction>(raw);
     } catch (parseErr) {
-      console.error("[BatchingProvider] Single predict JSON parse FAILED. Raw text:", raw);
+      console.error(
+        "[BatchingProvider] Single predict JSON parse FAILED. Raw text:",
+        raw,
+      );
       throw parseErr;
     }
     if (
@@ -427,7 +442,10 @@ export class BatchingAIProvider implements AIProvider {
     try {
       parsed = safeJsonParse<AIFormData>(raw);
     } catch (parseErr) {
-      console.error("[BatchingProvider] generateFormData JSON parse FAILED. Raw text:", raw);
+      console.error(
+        "[BatchingProvider] generateFormData JSON parse FAILED. Raw text:",
+        raw,
+      );
       throw parseErr;
     }
     if (!parsed.fieldValues || typeof parsed.fieldValues !== "object") {

@@ -22,10 +22,10 @@ import {
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
-const INITIAL_BACKOFF_MS = 15_000;  // 15 s after first 429
-const MAX_BACKOFF_MS = 120_000;     // cap at 2 min
+const INITIAL_BACKOFF_MS = 15_000; // 15 s after first 429
+const MAX_BACKOFF_MS = 120_000; // cap at 2 min
 const MAX_RETRIES_PER_PROVIDER = 3; // retry same provider N times before failover
-const MIN_REQUEST_GAP_MS = 1_000;   // always wait ≥1 s between requests
+const MIN_REQUEST_GAP_MS = 1_000; // always wait ≥1 s between requests
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -79,18 +79,26 @@ export class QueuedAIProvider implements AIProvider {
   private lastRequestAt = 0;
 
   constructor(providers: AIProvider[]) {
-    if (providers.length === 0) throw new Error("QueuedAIProvider: need at least one provider");
+    if (providers.length === 0)
+      throw new Error("QueuedAIProvider: need at least one provider");
     this.providers = providers;
   }
 
   // ── Public AIProvider interface ──────────────────────────────────────────
 
   async predictNextAction(context: CompactContext): Promise<AIPrediction> {
-    return this.enqueue("predictNextAction", (p) => p.predictNextAction(context));
+    return this.enqueue("predictNextAction", (p) =>
+      p.predictNextAction(context),
+    );
   }
 
-  async generateFormData(fields: FormFieldInfo[], pageContext?: string): Promise<AIFormData> {
-    return this.enqueue("generateFormData", (p) => p.generateFormData(fields, pageContext));
+  async generateFormData(
+    fields: FormFieldInfo[],
+    pageContext?: string,
+  ): Promise<AIFormData> {
+    return this.enqueue("generateFormData", (p) =>
+      p.generateFormData(fields, pageContext),
+    );
   }
 
   async callAgentTool(context: CompactContext): Promise<AgentToolCall> {
@@ -98,16 +106,23 @@ export class QueuedAIProvider implements AIProvider {
     // This bypasses the standard queue so the agent loop isn't blocked by
     // other in-flight requests, and avoids routing to providers that don't
     // implement the tool-call interface.
-    const capable = this.providers.find((p) => typeof p.callAgentTool === "function");
+    const capable = this.providers.find(
+      (p) => typeof p.callAgentTool === "function",
+    );
     if (!capable) {
-      throw new Error("QueuedAIProvider: no provider in the chain implements callAgentTool");
+      throw new Error(
+        "QueuedAIProvider: no provider in the chain implements callAgentTool",
+      );
     }
     return capable.callAgentTool!(context);
   }
 
   // ── Queue machinery ──────────────────────────────────────────────────────
 
-  private enqueue<T>(label: string, fn: (provider: AIProvider) => Promise<T>): Promise<T> {
+  private enqueue<T>(
+    label: string,
+    fn: (provider: AIProvider) => Promise<T>,
+  ): Promise<T> {
     return new Promise<T>((resolve, reject) => {
       this.queue.push({
         label,
@@ -130,7 +145,9 @@ export class QueuedAIProvider implements AIProvider {
 
       // Apply backoff if previous request hit a rate limit
       if (this.backoffMs > 0) {
-        queueLog(`Backing off ${this.backoffMs / 1000}s (provider ${this.activeIndex}) …`);
+        queueLog(
+          `Backing off ${this.backoffMs / 1000}s (provider ${this.activeIndex}) …`,
+        );
         await sleep(this.backoffMs);
       }
 
@@ -153,7 +170,10 @@ export class QueuedAIProvider implements AIProvider {
         } catch (err) {
           if (is429(err)) {
             this.consecutiveFailures++;
-            const delay = Math.min(INITIAL_BACKOFF_MS * Math.pow(2, this.consecutiveFailures - 1), MAX_BACKOFF_MS);
+            const delay = Math.min(
+              INITIAL_BACKOFF_MS * Math.pow(2, this.consecutiveFailures - 1),
+              MAX_BACKOFF_MS,
+            );
 
             if (attempt < MAX_RETRIES_PER_PROVIDER) {
               // Retry same provider after backoff
@@ -176,7 +196,11 @@ export class QueuedAIProvider implements AIProvider {
               // All providers exhausted
               queueLog("All providers rate-limited. Request rejected.");
               this.backoffMs = delay; // carry over backoff for next item
-              item.reject(new Error(`AI rate-limited: all providers returned 429 (last: ${err})`));
+              item.reject(
+                new Error(
+                  `AI rate-limited: all providers returned 429 (last: ${err})`,
+                ),
+              );
               resolved = true;
               break;
             }
@@ -190,7 +214,11 @@ export class QueuedAIProvider implements AIProvider {
       }
 
       if (!resolved) {
-        item.reject(new Error(`[AIQueue] Request '${item.label}' failed after all retries`));
+        item.reject(
+          new Error(
+            `[AIQueue] Request '${item.label}' failed after all retries`,
+          ),
+        );
       }
     }
 

@@ -4,7 +4,10 @@
  * fail over automatically when a 429 / quota error is returned.
  */
 
-import { createAIProvider, createNovaProvider } from "@/utils/aiProviderFactory";
+import {
+  createAIProvider,
+  createNovaProvider,
+} from "@/utils/aiProviderFactory";
 import { buildQueuedProvider, QueuedAIProvider } from "@/utils/aiQueue";
 import { getAIConfig } from "@/config/aiConfig";
 import type { ProviderName } from "@/utils/storage";
@@ -15,12 +18,17 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (area === "local" && "flowRecorder_userKeys" in changes) {
     import("../state").then(({ state }) => {
       state.aiProvider = undefined;
-      console.log("[providers] Settings changed — AI provider will be re-initialized on next use.");
+      console.log(
+        "[providers] Settings changed — AI provider will be re-initialized on next use.",
+      );
     });
   }
 });
 
-type ProviderEntry = { name: ProviderName; factory: () => ReturnType<typeof createAIProvider> | null };
+type ProviderEntry = {
+  name: ProviderName;
+  factory: () => ReturnType<typeof createAIProvider> | null;
+};
 
 export async function getAIProvider(): Promise<QueuedAIProvider | null> {
   const config = await getAIConfig();
@@ -28,27 +36,34 @@ export async function getAIProvider(): Promise<QueuedAIProvider | null> {
   const allProviders: ProviderEntry[] = [
     {
       name: "gemini",
-      factory: () => config.gemini
-        ? createAIProvider("gemini", config.gemini,
-            config.preferredProvider === "gemini" ? config.preferredModel : undefined)
-        : null,
+      factory: () =>
+        config.gemini
+          ? createAIProvider(
+              "gemini",
+              config.gemini,
+              config.preferredProvider === "gemini"
+                ? config.preferredModel
+                : undefined,
+            )
+          : null,
     },
     {
       name: "chatgpt",
-      factory: () => config.chatgpt
-        ? createAIProvider("chatgpt", config.chatgpt,
-            config.preferredProvider === "chatgpt" ? config.preferredModel : undefined)
-        : null,
+      factory: () =>
+        config.chatgpt
+          ? createAIProvider(
+              "chatgpt",
+              config.chatgpt,
+              config.preferredProvider === "chatgpt"
+                ? config.preferredModel
+                : undefined,
+            )
+          : null,
     },
     {
       name: "nova",
-      factory: () => config.novaConfig
-        ? createNovaProvider(config.novaConfig)
-        : null,
-    },
-    {
-      name: "chatgpt-tab",
-      factory: () => config.chatgptTab ? createAIProvider("chatgpt-tab", "") : null,
+      factory: () =>
+        config.novaConfig ? createNovaProvider(config.novaConfig) : null,
     },
   ];
 

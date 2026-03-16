@@ -3,7 +3,10 @@
  */
 
 import type { FormFieldInfo } from "@/types/ai";
-import { showFormDetectedBanner, hideFormDetectedBanner } from "../agent/agentPanel";
+import {
+  showFormDetectedBanner,
+  hideFormDetectedBanner,
+} from "../agent/agentPanel";
 import { generateAutofillData } from "./autofill";
 
 // ─── Form detection ───────────────────────────────────────────────────────────
@@ -41,14 +44,17 @@ export function detectFormForAgent(): {
 
 /** Collect FormFieldInfo[] from a form element. */
 function buildFormFields(form: HTMLFormElement): FormFieldInfo[] {
-  const allElements = Array.from(form.querySelectorAll("input, textarea, select"));
+  const allElements = Array.from(
+    form.querySelectorAll("input, textarea, select"),
+  );
   const processedRadioGroups = new Set<string>();
 
   return allElements
     .filter((el) => {
       const input = el as HTMLInputElement;
       const type = input.type?.toLowerCase();
-      if (type === "submit" || type === "button" || type === "hidden") return false;
+      if (type === "submit" || type === "button" || type === "hidden")
+        return false;
       if (type === "radio") {
         if (!input.name || processedRadioGroups.has(input.name)) return false;
         processedRadioGroups.add(input.name);
@@ -58,10 +64,15 @@ function buildFormFields(form: HTMLFormElement): FormFieldInfo[] {
       return !input.value;
     })
     .map((el) => {
-      const input = el as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement;
+      const input = el as
+        | HTMLInputElement
+        | HTMLTextAreaElement
+        | HTMLSelectElement;
       const type =
         (input as HTMLInputElement).type?.toLowerCase() ||
-        (input.tagName.toLowerCase() === "textarea" ? "textarea" : input.tagName.toLowerCase());
+        (input.tagName.toLowerCase() === "textarea"
+          ? "textarea"
+          : input.tagName.toLowerCase());
 
       let labelText = "";
       if (input.id) {
@@ -118,14 +129,19 @@ function buildFormFields(form: HTMLFormElement): FormFieldInfo[] {
 // ─── Form fill ────────────────────────────────────────────────────────────────
 
 /** Fill a form using AI-generated data. Used by the agent executor. */
-export async function fillFormForAgent(fields: FormFieldInfo[]): Promise<boolean> {
+export async function fillFormForAgent(
+  fields: FormFieldInfo[],
+): Promise<boolean> {
   try {
     const data = await generateAutofillData(fields);
     if (!data || Object.keys(data).length === 0) return false;
 
     const formInfo = detectFormForAgent();
     if (formInfo.form && (window as any).__fillFormElement) {
-      await (window as any).__fillFormElement(formInfo.form, data, { debug: true, delay: 50 });
+      await (window as any).__fillFormElement(formInfo.form, data, {
+        debug: true,
+        delay: 50,
+      });
     } else if ((window as any).__fillActiveForm) {
       await (window as any).__fillActiveForm(data, { debug: true, delay: 50 });
     }
@@ -153,7 +169,8 @@ export function checkAndShowFormBanner(): void {
   }
 
   const formEntries = forms.map((form, index) => {
-    const ariaLabel = form.getAttribute("aria-label") || form.getAttribute("aria-labelledby");
+    const ariaLabel =
+      form.getAttribute("aria-label") || form.getAttribute("aria-labelledby");
     const idLabel = form.id ? `#${form.id}` : "";
     const heading = form
       .closest("section, main, article, div")
@@ -162,7 +179,8 @@ export function checkAndShowFormBanner(): void {
     const submitBtn = form.querySelector<HTMLInputElement | HTMLButtonElement>(
       "button[type=submit], input[type=submit]",
     );
-    const submitLabel = submitBtn?.textContent?.trim() || submitBtn?.value?.trim();
+    const submitLabel =
+      submitBtn?.textContent?.trim() || submitBtn?.value?.trim();
     const label =
       ariaLabel ||
       (idLabel && idLabel !== "#" ? idLabel : "") ||

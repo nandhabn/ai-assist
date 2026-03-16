@@ -6,10 +6,7 @@
  * complete style isolation and has no external dependencies.
  */
 
-import type {
-  PredictionResult,
-  RankedPrediction,
-} from "../../utils/predictionEngine";
+import type { PredictionResult, RankedPrediction } from "@/types/ai";
 import type { AgentStatus, AgentStep } from "../../utils/agentExecutor";
 
 type ExecuteCallback = (prediction: RankedPrediction) => void;
@@ -779,7 +776,9 @@ export function initAgentPanel(
 
   // ---- Collapse toggle ----
   const COLLAPSE_KEY = "flowAgent_collapsed";
-  const collapseBtn = shadowRoot.getElementById("collapse-btn") as HTMLButtonElement;
+  const collapseBtn = shadowRoot.getElementById(
+    "collapse-btn",
+  ) as HTMLButtonElement;
   const applyCollapsed = (collapsed: boolean) => {
     container.classList.toggle("collapsed", collapsed);
     collapseBtn.classList.toggle("collapsed", collapsed);
@@ -932,9 +931,15 @@ export function initAgentPanel(
   // ---- end Mission Prompt wiring ----
 
   // ---- Agent Control wiring ----
-  const agentStartBtn = shadowRoot.getElementById("agent-start-btn") as HTMLButtonElement;
-  const agentStopBtn = shadowRoot.getElementById("agent-stop-btn") as HTMLButtonElement;
-  const agentPauseBtn = shadowRoot.getElementById("agent-pause-btn") as HTMLButtonElement;
+  const agentStartBtn = shadowRoot.getElementById(
+    "agent-start-btn",
+  ) as HTMLButtonElement;
+  const agentStopBtn = shadowRoot.getElementById(
+    "agent-stop-btn",
+  ) as HTMLButtonElement;
+  const agentPauseBtn = shadowRoot.getElementById(
+    "agent-pause-btn",
+  ) as HTMLButtonElement;
 
   agentStartBtn.addEventListener("click", () => {
     if (onAgentStart) onAgentStart();
@@ -1328,9 +1333,15 @@ export function updateAgentControlUI(
 ) {
   if (!shadowRoot) return;
 
-  const startBtn = shadowRoot.getElementById("agent-start-btn") as HTMLButtonElement | null;
-  const stopBtn = shadowRoot.getElementById("agent-stop-btn") as HTMLButtonElement | null;
-  const pauseBtn = shadowRoot.getElementById("agent-pause-btn") as HTMLButtonElement | null;
+  const startBtn = shadowRoot.getElementById(
+    "agent-start-btn",
+  ) as HTMLButtonElement | null;
+  const stopBtn = shadowRoot.getElementById(
+    "agent-stop-btn",
+  ) as HTMLButtonElement | null;
+  const pauseBtn = shadowRoot.getElementById(
+    "agent-pause-btn",
+  ) as HTMLButtonElement | null;
   const statusBar = shadowRoot.getElementById("agent-status-bar");
   const statusDot = shadowRoot.getElementById("agent-status-dot");
   const statusText = shadowRoot.getElementById("agent-status-text");
@@ -1348,10 +1359,6 @@ export function updateAgentControlUI(
       stopBtn.style.display = "inline-block";
       pauseBtn.style.display = "inline-block";
       pauseBtn.textContent = "▶";
-    } else if (status === "planning") {
-      startBtn.style.display = "none";
-      stopBtn.style.display = "inline-block";
-      pauseBtn.style.display = "none";
     } else {
       startBtn.style.display = "inline-block";
       stopBtn.style.display = "none";
@@ -1403,14 +1410,15 @@ export function appendAgentLogEntry(step: AgentStep) {
 
   const entry = document.createElement("div");
   entry.className = "agent-log-entry";
-  entry.innerHTML = `<span class="agent-log-step">${step.stepNumber}.</span>`
-    + `<span class="agent-log-action">${escapeHtml(step.action)}</span>`
-    + `<span class="${step.success ? "agent-log-ok" : "agent-log-fail"}">${step.success ? "✓" : "✗"}</span>`;
+  entry.innerHTML =
+    `<span class="agent-log-step">${step.stepNumber}.</span>` +
+    `<span class="agent-log-action">${escapeHtml(step.action)}</span>` +
+    `<span class="${step.success ? "agent-log-ok" : "agent-log-fail"}">${step.success ? "✓" : "✗"}</span>`;
 
   // ── Tooltip: show full step details on hover ──────────────────────────
   const time = new Date(step.timestamp).toLocaleTimeString();
   const statusClass = step.success ? "ok" : "fail";
-  const statusText  = step.success ? "✓ success" : "✗ failed";
+  const statusText = step.success ? "✓ success" : "✗ failed";
 
   // Build prompt section: prefer the full prompt stored on the step, fall back to tool-call params
   let promptHtml = "";
@@ -1421,12 +1429,17 @@ export function appendAgentLogEntry(step: AgentStep) {
       `</div>`;
   } else if (step.selector?.startsWith("__tool__:")) {
     try {
-      const toolCall = JSON.parse(step.selector.slice("__tool__:".length)) as { tool?: string; params?: Record<string, unknown> };
+      const toolCall = JSON.parse(step.selector.slice("__tool__:".length)) as {
+        tool?: string;
+        params?: Record<string, unknown>;
+      };
       const formatted = JSON.stringify(toolCall.params ?? toolCall, null, 2);
       promptHtml =
         `<div class="tt-prompt"><span class="tt-prompt-label">🤖 Tool Call</span>` +
         `tool: ${escapeHtml(toolCall.tool ?? "")}\nparams: ${escapeHtml(formatted)}</div>`;
-    } catch { /* not valid JSON — skip */ }
+    } catch {
+      /* not valid JSON — skip */
+    }
   }
 
   let hideTimer: ReturnType<typeof setTimeout> | null = null;
@@ -1442,7 +1455,10 @@ export function appendAgentLogEntry(step: AgentStep) {
     promptHtml;
 
   const showTooltip = (e: MouseEvent) => {
-    if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
+    if (hideTimer) {
+      clearTimeout(hideTimer);
+      hideTimer = null;
+    }
     const tooltip = getTooltip();
     if (!tooltip) return;
     tooltip.innerHTML = buildTooltipContent();
@@ -1458,7 +1474,7 @@ export function appendAgentLogEntry(step: AgentStep) {
   };
 
   entry.addEventListener("mouseenter", showTooltip);
-  entry.addEventListener("mousemove",  (e) => {
+  entry.addEventListener("mousemove", (e) => {
     const tooltip = getTooltip();
     if (tooltip?.classList.contains("visible")) positionStepTooltip(tooltip, e);
   });
@@ -1470,7 +1486,10 @@ export function appendAgentLogEntry(step: AgentStep) {
     const tooltip = getTooltip();
     if (!tooltip) return;
     tooltip.addEventListener("mouseenter", () => {
-      if (hideTimer) { clearTimeout(hideTimer); hideTimer = null; }
+      if (hideTimer) {
+        clearTimeout(hideTimer);
+        hideTimer = null;
+      }
     });
     tooltip.addEventListener("mouseleave", scheduleHide);
   }, 0);
@@ -1512,10 +1531,11 @@ function positionStepTooltip(tooltip: HTMLElement, e: MouseEvent) {
   const H = window.innerHeight;
   const tw = tooltip.offsetWidth || 320;
   const th = tooltip.offsetHeight || 120;
-  const left = e.clientX + PAD + tw > W ? e.clientX - tw - PAD : e.clientX + PAD;
-  const top  = e.clientY + th + PAD > H ? e.clientY - th - PAD : e.clientY + PAD;
+  const left =
+    e.clientX + PAD + tw > W ? e.clientX - tw - PAD : e.clientX + PAD;
+  const top = e.clientY + th + PAD > H ? e.clientY - th - PAD : e.clientY + PAD;
   tooltip.style.left = `${left}px`;
-  tooltip.style.top  = `${top}px`;
+  tooltip.style.top = `${top}px`;
 }
 
 export function toggleAgentPanelVisibility(visible: boolean) {

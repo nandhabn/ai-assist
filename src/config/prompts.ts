@@ -13,6 +13,83 @@ import { CompactContext, FormFieldInfo } from "@/types/ai";
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 /**
+ * Extracts meaningful keywords from a mission string for fuzzy-matching
+ * against element labels. Strips stop words, returns lowercased tokens.
+ */
+function extractMissionKeywords(mission: string): string[] {
+  const STOP_WORDS = new Set([
+    "the",
+    "and",
+    "for",
+    "that",
+    "this",
+    "from",
+    "with",
+    "page",
+    "site",
+    "website",
+    "official",
+    "please",
+    "then",
+    "into",
+    "about",
+    "will",
+    "can",
+    "should",
+    "would",
+    "could",
+    "have",
+    "has",
+    "had",
+    "not",
+    "but",
+    "its",
+    "are",
+    "was",
+    "were",
+    "been",
+    "being",
+    "find",
+    "get",
+    "use",
+    "make",
+    "look",
+    "want",
+    "need",
+  ]);
+  return mission
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter((w) => w.length >= 2 && !STOP_WORDS.has(w));
+}
+
+/**
+ * Strips prompt-injection patterns from user-provided skill text.
+ * Removes lines that look like system/role overrides or instruction resets.
+ */
+function sanitizeSkillText(text: string): string {
+  return text
+    .split("\n")
+    .filter((line) => {
+      const lower = line.toLowerCase().trim();
+      // Block lines that attempt to override system instructions
+      return !(
+        lower.startsWith("ignore previous") ||
+        lower.startsWith("ignore all") ||
+        lower.startsWith("disregard") ||
+        lower.startsWith("you are now") ||
+        lower.startsWith("new instructions:") ||
+        lower.startsWith("system:") ||
+        lower.startsWith("=== role") ||
+        lower.startsWith("=== system") ||
+        /^\s*\{?\s*"?role"?\s*:\s*"?system/i.test(lower)
+      );
+    })
+    .join("\n");
+}
+
+/**
  * Formats an array of FormFieldInfo into a human-readable description string
  * that is included in AI prompts. Shared across all providers.
  */
@@ -141,146 +218,6 @@ export function buildPredictionPrompt(context: CompactContext): string {
   ].join("\n");
 }
 
-// ─── Agent Planning Prompt ─────────────────────────────────────────────────────
-
-/**
- * Prompt that asks the AI to produce a concise numbered action plan for the mission
- * before the agent starts executing. Returned as a plain string the user can inspect.
- */
-export function buildMissionPlanPrompt(
-  mission: string,
-  pageTitle: string,
-  pageUrl: string,
-  visibleActions: string[],
-): string {
-  return [
-    "=== ROLE ===",
-    "You are an autonomous web agent. Before executing, you must produce a clear step-by-step action plan for the mission.",
-    "",
-    "=== MISSION ===",
-    mission,
-    "",
-    "=== CURRENT PAGE ===",
-    `Title : ${pageTitle}`,
-    `URL   : ${pageUrl}`,
-    "",
-    "=== VISIBLE ACTIONS ON THIS PAGE ===",
-    visibleActions.slice(0, 20).join(", "),
-    "",
-    "=== PLANNING RULES ===",
-    "1. Produce a numbered list of concrete browser actions — maximum 10 steps.",
-    "2. Each step must specify a precise action: click <element>, type <text> into <field>, navigate to <url>, etc.",
-    "3. Ground each step in the visible actions or known URLs — do not invent elements that may not exist.",
-    "4. If the mission spans multiple pages, include explicit navigation steps.",
-    "5. The final step MUST be a Verify step that confirms the mission succeeded (e.g. 'Verify: order confirmation page shows order number').",
-    "",
-    "=== OUTPUT FORMAT ===",
-    "Respond with ONLY a valid JSON object. No markdown fences, no extra keys, no commentary.",
-    "{",
-    '  "plan": "1. ...\\n2. ...\\n3. ... (newline-separated numbered steps)",',
-    '  "estimatedSteps": <integer — total number of steps in the plan>',
-    "}",
-  ].join("\n");
-}
-
-// ─── Agent-Mode Prediction Prompts ────────────────────────────────────────────
-
-/** System message used for agent-mode prediction (always uses AI). */
-export const AGENT_PREDICTION_SYSTEM_PROMPT =
-  "You are an autonomous web agent executing a multi-step mission on behalf of the user.\n" +
-  "At every step you receive the current page state and must output EXACTLY ONE tool call as a JSON object.\n" +
-  "————————————————————————————————————————————————————————————————\n" +
-  "=== TOOL CALL FORMAT ===\n" +
-  "Output a single raw JSON object — no markdown, no extra keys:\n" +
-  '{ "tool": "navigate|click|type|scroll|message|done", "params": { ... }, "reasoning": "<= 60 chars", "confidenceEstimate": 0.0 }\n' +
-  "————————————————————————————————————————————————————————————————\n" +
-  "=== AVAILABLE TOOLS ===\n" +
-  "  navigate(url)         — Go to a full URL. Use this whenever you need to reach a different site or page.\n" +
-  "  click(label)          — Click a button or link. The label MUST match an element currently visible on the page.\n" +
-  "  type(label, text)     — Type text into an input or textarea. If a click just focused the field, omit 'label' and the text will go into the active element.\n" +
-  "  scroll(direction)     — Scroll 'up' or 'down' to reveal off-screen content.\n" +
-  "  message(message)      — Display a short status update to the user. Use SPARINGLY — only for important milestones visible to the user (e.g. 'Item added to cart'). NEVER use message() to verify, confirm, or narrate your own plan steps.\n" +
-  "  done(reason)          — Signal mission complete or unrecoverable ONLY after an explicit on-screen confirmation.\n" +
-  "————————————————————————————————————————————————————————————————\n" +
-  "=== STRICT RULES ===\n" +
-  "  1. Always choose the tool that DIRECTLY advances the mission — never a no-op.\n" +
-  "  2. If the last action FAILED (marked ⚠), choose a DIFFERENT label, tool, or approach. Never repeat the same failed action.\n" +
-  "  3. Never call done() just because you found, clicked, or viewed a product. Wait for an order/checkout confirmation message.\n" +
-  "  4. Never call scroll() more than 3 consecutive times without clicking something.\n" +
-  "  5. Never repeat an action already in SESSION HISTORY as successfully executed on the current page.\n" +
-  "  6. NEVER call message() to verify you are on the right page, confirm a plan step, or narrate progress. Use it only when you have a concrete result to report to the user.\n" +
-  "  7. NEVER call message() twice in a row. If your previous action was message(), your next action MUST be click, type, navigate, scroll, or done.\n" +
-  "  8. Output raw JSON ONLY — no markdown fences, no explanatory text outside the JSON object.\n" +
-  "————————————————————————————————————————————————————————————————";
-
-/**
- * User prompt for agent-mode prediction.
- * Emphasizes the mission and includes step history for context.
- */
-export function buildAgentPredictionPrompt(
-  context: CompactContext,
-  stepHistory: { action: string; pageUrl: string }[] = [],
-): string {
-  const {
-    pageIntent,
-    lastActionLabel,
-    topVisibleActions,
-    formFields,
-    pageMeta,
-    mission,
-  } = context;
-
-  const metaBlock = formatPageMeta(pageMeta);
-
-  const historyBlock =
-    stepHistory.length > 0
-      ? stepHistory
-          .slice(-10)
-          .map((s, i) => `  ${i + 1}. ${s.action} (on ${s.pageUrl})`)
-          .join("\n")
-      : "";
-
-  return [
-    "=== ROLE ===",
-    "You are an autonomous web agent executing a multi-step mission. Choose the single best next action.",
-    "",
-    "=== MISSION ===",
-    mission || "(none — explore the page and take the most logical action)",
-    "",
-    "=== CURRENT PAGE STATE ===",
-    metaBlock || "(no page metadata available)",
-    `Page Intent : ${pageIntent}`,
-    `Last Action : ${lastActionLabel || "None"}`,
-    "",
-    historyBlock
-      ? [
-          "=== SESSION HISTORY (most recent last) ===",
-          historyBlock.trim(),
-          "",
-        ].join("\n")
-      : "",
-    "=== INTERACTIVE ELEMENTS ===",
-    "Visible Actions — your answer MUST be one of these exact strings, or 'MISSION_COMPLETE':",
-    JSON.stringify(topVisibleActions, null, 2),
-    "",
-    "Available Form Fields:",
-    JSON.stringify(formFields, null, 2),
-    "",
-    "=== COMPLETION CONDITION ===",
-    "If the page shows an explicit success message, order confirmation, or the mission goal is fully achieved,",
-    "set confidenceEstimate to 0.0 and predictedActionLabel to 'MISSION_COMPLETE'.",
-    "",
-    "=== OUTPUT FORMAT ===",
-    "Respond with ONLY a valid JSON object. No markdown fences, no extra keys, no commentary.",
-    "{",
-    '  "predictedActionLabel": "<string — one of the Visible Actions above, or \'MISSION_COMPLETE\' if done>",',
-    '  "reasoning": "<string — one phrase, max 60 chars, e.g. \'next step toward goal\'>",',
-    '  "confidenceEstimate": <number — 0.0 signals MISSION_COMPLETE; 0.01 to 1.0 is confidence in the chosen action>,',
-    '  "inputText": "<string — ONLY include when the action is to TYPE text; provide exact text to type. OMIT for click/navigation.>"',
-    "}",
-  ].join("\n");
-}
-
 // ─── Agent Tool-Call Prompt ───────────────────────────────────────────────────
 
 /**
@@ -300,8 +237,6 @@ export function buildAgentToolPrompt(context: CompactContext): string {
     mission,
     stepHistory,
     turnHistory,
-    plan,
-    currentPlanStep,
     pageElements,
     currentUrl,
     postActionObservation,
@@ -316,26 +251,27 @@ export function buildAgentToolPrompt(context: CompactContext): string {
     ? `MISSION: ${mission}`
     : "MISSION: (none — explore the page)";
 
-  const planSection = plan
-    ? [
-        "",
-        "=== MISSION PLAN ===",
-        plan,
-        "",
-        `▶ EXECUTE STEP ${currentPlanStep ?? 1} NOW`,
-        "  Your tool call MUST advance this plan step.",
-        "  If this step requires a different site, call navigate(url) immediately.",
-        "=== END PLAN ===",
-        "",
-      ].join("\n")
-    : "";
-
   // ── Rich turn history (preferred) ────────────────────────────────────────
-  // When full turn records are available, render them with page state + AI decision + result.
-  // Falls back to the lightweight stepHistory for backward compatibility.
+  // Show full detail for last 6 turns; summarize older turns compactly.
   let historySection = "";
   if (turnHistory && turnHistory.length > 0) {
-    const turnLines = turnHistory.slice(-8).map((t, i) => {
+    const RECENT_WINDOW = 6;
+    const older = turnHistory.slice(0, -RECENT_WINDOW);
+    const recent = turnHistory.slice(-RECENT_WINDOW);
+
+    // Compact one-line summaries for older turns
+    const olderLines = older.map((t) => {
+      const tc = t.toolCall;
+      const param =
+        tc.params.label ??
+        tc.params.url ??
+        tc.params.reason ??
+        tc.params.direction ??
+        "";
+      return `  Step ${t.stepNumber}: ${tc.tool}(${param.slice(0, 30)}) → ${t.success ? "ok" : "FAILED"}`;
+    });
+
+    const recentLines = recent.map((t) => {
       const pageShort = t.pageUrl.replace(/^https?:\/\//, "").slice(0, 50);
       const tc = t.toolCall;
       let decisionLine = `  Decision: ${tc.tool}`;
@@ -377,9 +313,17 @@ export function buildAgentToolPrompt(context: CompactContext): string {
 
       return `Step ${t.stepNumber} — ${pageShort}\n${decisionLine}\n${resultLine}`;
     });
+
+    const allLines = [
+      ...(olderLines.length > 0
+        ? ["(earlier steps — summary)", ...olderLines, ""]
+        : []),
+      ...recentLines,
+    ];
+
     historySection = [
       "=== SESSION HISTORY (most recent last) ===",
-      turnLines.join("\n\n"),
+      allLines.join("\n\n"),
       "",
     ].join("\n");
   } else if (stepHistory && stepHistory.length > 0) {
@@ -442,20 +386,51 @@ export function buildAgentToolPrompt(context: CompactContext): string {
     }
   }
 
+  // ── Filter out decorative / low-value elements ─────────────────────────────
+  // These patterns are almost never mission-relevant and inflate the prompt.
+  const DECORATIVE_RE =
+    /^(close\s.{15,}|move\s+360|return\s+360|mute\s+volume|full\s+screen|go\s+to\s+current\s+live|play$|pause$)/i;
+  const filteredElements =
+    pageElements?.filter((e) => !DECORATIVE_RE.test(e.label)) ?? [];
+
+  // ── Mission-relevant element highlights ─────────────────────────────────────
+  let relevantSection = "";
+  if (mission && filteredElements.length > 0) {
+    const keywords = extractMissionKeywords(mission);
+    if (keywords.length > 0) {
+      const relevant = filteredElements.filter((e) => {
+        const lower = e.label.toLowerCase();
+        return keywords.some((kw) => lower.includes(kw));
+      });
+      if (relevant.length > 0 && relevant.length <= 15) {
+        relevantSection = [
+          "▶ BEST MATCHES for this mission (prefer these):",
+          ...relevant.map((e) => {
+            const val = e.currentValue
+              ? ` (currently: "${e.currentValue}")`
+              : "";
+            return `  ★ "${e.label}" [${e.type}]${val}`;
+          }),
+          "",
+        ].join("\n");
+      }
+    }
+  }
+
   // Format page elements grouped by type for readability
   const buttons =
-    pageElements
-      ?.filter((e) => e.type === "button")
+    filteredElements
+      .filter((e) => e.type === "button")
       .map((e) => `  • "${e.label}"`)
       .join("\n") ?? "";
   const links =
-    pageElements
-      ?.filter((e) => e.type === "link")
+    filteredElements
+      .filter((e) => e.type === "link")
       .map((e) => `  • "${e.label}"`)
       .join("\n") ?? "";
   const inputs =
-    pageElements
-      ?.filter(
+    filteredElements
+      .filter(
         (e) =>
           e.type === "input" || e.type === "textarea" || e.type === "select",
       )
@@ -475,26 +450,40 @@ export function buildAgentToolPrompt(context: CompactContext): string {
     .filter(Boolean)
     .join("\n");
 
-  // ── Active Skills ─────────────────────────────────────────────────────────
+  // ── Active Skills (filter to mission-relevant only) ────────────────────────
+  const missionKeywords = mission ? extractMissionKeywords(mission) : [];
+  const relevantSkills =
+    skills && skills.length > 0 && missionKeywords.length > 0
+      ? skills.filter((s) => {
+          const text = `${s.name} ${s.description}`.toLowerCase();
+          return missionKeywords.some((kw) => text.includes(kw));
+        })
+      : (skills ?? []);
+
   const skillToolNames: string[] = [];
   const skillsSection =
-    skills && skills.length > 0
+    relevantSkills.length > 0
       ? [
           "=== ACTIVE SKILLS ===",
-          "You have the following user-defined skills. Apply their instructions when relevant to the current step.",
+          "You have the following user-defined skills. ONLY use them when the mission clearly requires their capability.",
           "",
-          ...skills.map((s) => {
+          ...relevantSkills.map((s) => {
             const toolBlock =
               s.tools && s.tools.length > 0
-                ? s.tools.map((t) => {
-                    skillToolNames.push(t.name);
-                    return `  Tool: ${t.name}\n  When to use: ${t.description}`;
-                  }).join("\n")
+                ? s.tools
+                    .map((t) => {
+                      skillToolNames.push(t.name);
+                      return `  Tool: ${t.name}\n  When to use: ${sanitizeSkillText(t.description)}`;
+                    })
+                    .join("\n")
                 : null;
             return [
               `[${s.name}]`,
-              `Description: ${s.description}`,
-              `Instructions:\n${s.instructions.split("\n").map((l) => `  ${l}`).join("\n")}`,
+              `Description: ${sanitizeSkillText(s.description)}`,
+              `Instructions:\n${sanitizeSkillText(s.instructions)
+                .split("\n")
+                .map((l) => `  ${l}`)
+                .join("\n")}`,
               ...(toolBlock ? [`Custom tools:\n${toolBlock}`] : []),
             ].join("\n");
           }),
@@ -505,12 +494,15 @@ export function buildAgentToolPrompt(context: CompactContext): string {
 
   // Extra tool entries from skills
   const skillToolLines = skillToolNames.map(
-    (n) => `  ${n.padEnd(22)}— Custom skill tool. Call when its description matches your intent.`,
+    (n) =>
+      `  ${n.padEnd(22)}— Custom skill tool. Call when its description matches your intent.`,
   );
 
   return [
     "=== ROLE ===",
-    "You are an autonomous web agent executing a mission step-by-step. Choose ONE tool call that advances the mission.",
+    "You are an autonomous web agent executing a mission step-by-step.",
+    "First, identify which element in the INTERACTIVE ELEMENTS list best advances the mission.",
+    "Then choose the ONE tool call to interact with it.",
     "",
     "=== MISSION ===",
     missionLine,
@@ -520,7 +512,6 @@ export function buildAgentToolPrompt(context: CompactContext): string {
     `URL        : ${url}`,
     `Page Intent: ${pageIntent}`,
     "",
-    planSection,
     observationSection,
     historySection,
     skillsSection,
@@ -535,6 +526,7 @@ export function buildAgentToolPrompt(context: CompactContext): string {
         ].join("\n")
       : "",
     "=== INTERACTIVE ELEMENTS ===",
+    relevantSection,
     elementsSection || "(no interactive elements detected)",
     "",
     "=== AVAILABLE TOOLS ===",
@@ -548,29 +540,29 @@ export function buildAgentToolPrompt(context: CompactContext): string {
     "",
     "=== TOOL SELECTION RULES ===",
     "  1. Call navigate() whenever you need to reach a different website or URL — do NOT look for a URL bar on-page.",
-    "  2. Call click() for buttons and links. The label MUST closely match a listed element above.",
+    '  2. Call click() for buttons and links. The "label" MUST be an EXACT string copied from the INTERACTIVE ELEMENTS list above — do NOT paraphrase, abbreviate, or invent labels.',
     "  3. Call type() for text inputs, search boxes, and dropdowns. Provide the exact text to enter.",
     "  4. Call done() ONLY when the page displays an explicit success: thank-you message, order confirmation, or order number.",
     "  5. NEVER call done() just because you found, clicked, or viewed a product. The mission is only complete after checkout confirmation.",
     "  6. If a sidebar or panel just opened, you are NOT done — look for 'Visit site', 'Buy', 'Add to cart', or 'Checkout' actions inside it.",
     "  7. Call message() to surface important findings (e.g. prices, product details) before navigating away from a result page.",
     "  8. NEVER repeat an action that already appears in SESSION HISTORY as successfully executed on the current page.",
-    "  9. If the plan step requires a site you are not currently on, call navigate() immediately.",
-    " 10. Consult RESULT OF LAST ACTION (when present) to understand exactly what changed on the page before deciding the next step.",
+    "  9. Consult RESULT OF LAST ACTION (when present) to understand exactly what changed on the page before deciding the next step.",
+    "  10. When BEST MATCHES are listed, prefer those elements unless they clearly don't fit the current step.",
     "",
     "=== OUTPUT FORMAT ===",
     "Respond with ONLY a valid JSON object. No markdown fences, no extra keys, no commentary.",
+    "Include ONLY the params relevant to the chosen tool:",
+    `  navigate → { "url": "<full URL>" }`,
+    `  click    → { "label": "<EXACT string from INTERACTIVE ELEMENTS>" }`,
+    `  type     → { "label": "<input label or empty>", "text": "<text to type>" }`,
+    `  scroll   → { "direction": "up" | "down" }`,
+    `  message  → { "message": "<short status>" }`,
+    `  done     → { "reason": "<why complete or unrecoverable>" }`,
+    "",
     "{",
     `  "tool": "navigate | click | type | scroll | message | done${skillToolNames.length > 0 ? ` | ${skillToolNames.join(" | ")}` : ""}",`,
-    '  "params": {',
-    '    "url"      : "<string — navigate only: full URL to navigate to>",',
-    '    "label"    : "<string — click: required, must match a listed element above | type: optional, omit if a click just focused the target input>",',
-    '    "text"     : "<string — type only: exact text to type into the field>",',
-    '    "direction": "up | down  (scroll only)",',
-    '    "message"  : "<string — message only: short status update for the user>",',
-    '    "reason"   : "<string — done only: brief explanation of why the mission is complete or unrecoverable>"',
-    "  },",
-    '  "planStep": <integer — the plan step number (from the MISSION PLAN above) this action is advancing>,',
+    '  "params": { <see per-tool params above> },',
     '  "reasoning": "<string — max 60 chars explaining why this tool was chosen>",',
     '  "confidenceEstimate": <number between 0.0 and 1.0>',
     "}",

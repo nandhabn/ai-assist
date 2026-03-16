@@ -1,10 +1,9 @@
 /**
  * Agent lifecycle management.
  * Owns: initializeAgent, decommissionAgent, setAgentState, getOrCreateAgentExecutor,
- * planMission, saveAgentSession, and start/stop/pause/resume handlers.
+ * saveAgentSession, and start/stop/pause/resume handlers.
  */
 
-import type { FormFieldInfo } from "@/types/ai";
 import {
   AgentExecutor,
   AgentStatus,
@@ -13,7 +12,6 @@ import {
   AgentResumeSnapshot,
 } from "@/utils/agentExecutor";
 import { isAgentEnabled, setAgentEnabled } from "@/utils/storage";
-import { buildMissionPlanPrompt } from "@/config/prompts";
 import {
   initAgentPanel,
   toggleAgentPanelVisibility,
@@ -22,13 +20,16 @@ import {
   appendAgentLogEntry,
   clearAgentLog,
   flashAutoExecution,
-  showAgentPlan,
 } from "./agentPanel";
 import { state } from "../state";
 import { getAIProvider } from "../ai/providers";
 import { predictForAgent, consumeLastPredictionContext } from "./prediction";
 import { executeForAgent } from "./execution";
-import { detectFormForAgent, fillFormForAgent, checkAndShowFormBanner } from "../form/formDetect";
+import {
+  detectFormForAgent,
+  fillFormForAgent,
+  checkAndShowFormBanner,
+} from "../form/formDetect";
 import { generateAutofillData } from "../form/autofill";
 
 // ─── Snapshot persistence (cross-navigation resume) ─────────────────────────
@@ -49,7 +50,9 @@ export async function saveAgentResumeSnapshot(): Promise<void> {
 export async function clearAgentResumeSnapshot(): Promise<void> {
   try {
     await chrome.storage.local.remove(RESUME_SNAPSHOT_KEY);
-  } catch (_) { /* no-op */ }
+  } catch (_) {
+    /* no-op */
+  }
 }
 
 /**
@@ -61,7 +64,9 @@ export async function clearAgentResumeSnapshot(): Promise<void> {
 export async function handleAgentContinue(): Promise<boolean> {
   try {
     const data = await chrome.storage.local.get(RESUME_SNAPSHOT_KEY);
-    const snapshot = data[RESUME_SNAPSHOT_KEY] as AgentResumeSnapshot | undefined;
+    const snapshot = data[RESUME_SNAPSHOT_KEY] as
+      | AgentResumeSnapshot
+      | undefined;
     if (!snapshot?.session) return false;
 
     // Don't restore stale sessions (older than 1 hour)
@@ -79,8 +84,6 @@ export async function handleAgentContinue(): Promise<boolean> {
     clearAgentLog();
     // Re-render previously completed steps in the log
     snapshot.session.steps.forEach((step) => appendAgentLogEntry(step));
-    // Show existing plan if any
-    if (snapshot.session.plan) showAgentPlan(snapshot.session.plan);
     console.log(
       `[Flow Agent] Continuing session "${snapshot.session.id}" from step ${snapshot.stepCount} on new page.`,
     );
@@ -99,8 +102,12 @@ export function initializeAgent(): void {
 
   console.log("[Flow Agent] Initializing...");
   initAgentPanel(
-    () => { /* manual prediction execution not used in tool-call mode */ },
-    () => { /* no prediction refresh — agent drives its own loop */ },
+    () => {
+      /* manual prediction execution not used in tool-call mode */
+    },
+    () => {
+      /* no prediction refresh — agent drives its own loop */
+    },
     generateAutofillData,
     {
       onStart: handleAgentStart,
@@ -142,31 +149,49 @@ export function getOrCreateAgentExecutor(): AgentExecutor {
         execute: executeForAgent,
         detectForm: detectFormForAgent,
         fillForm: fillFormForAgent,
-        planMission: (mission: string) => planMission(mission),
-        onSessionSave: (session: AgentSession) => { saveAgentSession(session); },
-        onStatusChange: (status: AgentStatus, stepCount: number, message?: string) => {
+        getLastActionFailure: () => {
+          const v = state.lastActionFailure;
+          state.lastActionFailure = null;
+          return v;
+        },
+        setLastActionFailure: (msg: string | null) => {
+          state.lastActionFailure = msg;
+        },
+        onSessionSave: (session: AgentSession) => {
+          saveAgentSession(session);
+        },
+        onStatusChange: (
+          status: AgentStatus,
+          stepCount: number,
+          message?: string,
+        ) => {
           state.isAgentExecutorActive =
-            status === "running" || status === "paused" || status === "planning";
+            status === "running" || status === "paused";
 
           // Clear snapshot once the session reaches a terminal state so it
           // doesn't accidentally resume a finished/stopped session later.
-          if (status === "completed" || status === "stopped" || status === "error") {
+          if (
+            status === "completed" ||
+            status === "stopped" ||
+            status === "error"
+          ) {
             clearAgentResumeSnapshot();
           }
 
           const flyout = document.getElementById("flow-recorder-flyout");
-          if (flyout) flyout.style.display = state.isAgentExecutorActive ? "none" : "";
+          if (flyout)
+            flyout.style.display = state.isAgentExecutorActive ? "none" : "";
 
           updateAgentControlUI(status, stepCount, message);
-          console.log(`[Agent] Status: ${status} | Steps: ${stepCount}${message ? ` | ${message}` : ""}`);
-
-          if (status === "running" && state.agentExecutor) {
-            const session = state.agentExecutor.getSession();
-            if (session?.plan) showAgentPlan(session.plan);
-          }
+          console.log(
+            `[Agent] Status: ${status} | Steps: ${stepCount}${message ? ` | ${message}` : ""}`,
+          );
 
           chrome.runtime
-            .sendMessage({ action: "SET_AGENT_RUNNING", running: state.isAgentExecutorActive })
+            .sendMessage({
+              action: "SET_AGENT_RUNNING",
+              running: state.isAgentExecutorActive,
+            })
             .catch(() => {});
         },
         onStepComplete: (step: AgentStep) => {
@@ -182,14 +207,14 @@ export function getOrCreateAgentExecutor(): AgentExecutor {
           // Build and record the full turn (page state + AI decision + outcome)
           if (predCtx && state.agentExecutor) {
             state.agentExecutor.addTurn({
-              stepNumber:      step.stepNumber,
-              pageUrl:         predCtx.pageUrl,
-              pageTitle:       predCtx.pageTitle,
+              stepNumber: step.stepNumber,
+              pageUrl: predCtx.pageUrl,
+              pageTitle: predCtx.pageTitle,
               elementsSnapshot: predCtx.pageElements,
-              toolCall:        predCtx.toolCall,
-              observation:     predCtx.observation,
-              success:         step.success,
-              timestamp:       step.timestamp,
+              toolCall: predCtx.toolCall,
+              observation: predCtx.observation,
+              success: step.success,
+              timestamp: step.timestamp,
             });
           }
           // Persist snapshot so the session survives a full-page navigation
@@ -209,7 +234,9 @@ export function getOrCreateAgentExecutor(): AgentExecutor {
 
 export function handleAgentStart(): void {
   if (!state.currentMission) {
-    console.warn("[Agent] Cannot start without a mission. Set a mission prompt first.");
+    console.warn(
+      "[Agent] Cannot start without a mission. Set a mission prompt first.",
+    );
     updateAgentControlUI("error", 0, "Set a mission first");
     return;
   }
@@ -230,58 +257,6 @@ export function handleAgentResume(): void {
   state.agentExecutor?.resume();
 }
 
-// ─── Planning ─────────────────────────────────────────────────────────────────
-
-/**
- * Calls AI to produce a step-by-step plan for the current mission.
- * Returns { plan, estimatedSteps } parsed from the model response.
- */
-export async function planMission(
-  mission: string,
-): Promise<{ plan: string; estimatedSteps?: number }> {
-  if (state.aiProvider === undefined) state.aiProvider = await getAIProvider();
-  const provider = state.aiProvider;
-  if (!provider) return { plan: "No AI provider available." };
-
-  const pageTitle = document.title;
-  const pageUrl = window.location.href;
-  const visibleActions = Array.from(
-    document.querySelectorAll<HTMLElement>("a, button, [role='button'], input, select, textarea"),
-  )
-    .filter((el) => {
-      const r = el.getBoundingClientRect();
-      return r.width > 0 && r.height > 0;
-    })
-    .slice(0, 30)
-    .map((el) => el.textContent?.trim() || el.getAttribute("aria-label") || el.tagName)
-    .filter(Boolean) as string[];
-
-  const prompt = buildMissionPlanPrompt(mission, pageTitle, pageUrl, visibleActions);
-
-  try {
-    const planField: FormFieldInfo = {
-      name: "plan",
-      id: "plan",
-      type: "text",
-      placeholder: "step-by-step plan as JSON",
-      labelText: prompt,
-      ariaLabel: "mission plan",
-    };
-    const result = await provider.generateFormData([planField], `Mission planning for: ${mission}`);
-    const raw = result.fieldValues["plan"] ?? "";
-    try {
-      const parsed = JSON.parse(raw) as { plan?: string; estimatedSteps?: number };
-      return { plan: parsed.plan ?? raw, estimatedSteps: parsed.estimatedSteps };
-    } catch {
-      return { plan: raw };
-    }
-  } catch (e) {
-    console.warn("[Agent] planMission failed:", e);
-    state.agentExecutor?.stop();
-    return { plan: "Planning failed - Stopped agent." };
-  }
-}
-
 // ─── Session persistence ──────────────────────────────────────────────────────
 
 /** Persists an agent session to chrome.storage.local (keeps last 20). */
@@ -294,7 +269,10 @@ export async function saveAgentSession(session: AgentSession): Promise<void> {
       index.push(key);
       if (index.length > 20) index.splice(0, index.length - 20);
     }
-    await chrome.storage.local.set({ [key]: session, agentSessionIndex: index });
+    await chrome.storage.local.set({
+      [key]: session,
+      agentSessionIndex: index,
+    });
     console.log(`[Agent] Session saved: ${key} (${session.status})`);
   } catch (e) {
     console.warn("[Agent] Failed to save session:", e);

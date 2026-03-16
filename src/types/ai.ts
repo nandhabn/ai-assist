@@ -74,7 +74,13 @@ export interface AIProvider {
  * - scroll    Scroll the viewport up or down to reveal more content.
  * - done      Signal that the mission is complete (success or unrecoverable failure).
  */
-export type AgentToolName = "navigate" | "click" | "type" | "scroll" | "done" | "message";
+export type AgentToolName =
+  | "navigate"
+  | "click"
+  | "type"
+  | "scroll"
+  | "done"
+  | "message";
 
 /**
  * Parameters for each tool.  Only the relevant keys need to be set.
@@ -271,22 +277,41 @@ export interface CompactContext {
  * The structured response expected from an AI Provider.
  */
 export interface AIPrediction {
-  /**
-   * The predicted label or identifier of the next action to be taken.
-   * This should correspond to one of the labels in `topVisibleActions`.
-   */
   predictedActionLabel: string;
-  /**
-   * The AI's reasoning for choosing the predicted action, for debugging and transparency.
-   */
   reasoning: string;
-  /**
-   * A score from 0.0 to 1.0 indicating the AI's confidence in its prediction.
-   */
   confidenceEstimate: number;
-  /**
-   * For TYPE actions only — the exact text the agent should type into the
-   * target input/textarea field (e.g. 'iphone 17 pro'). Omitted for click actions.
-   */
   inputText?: string;
+}
+
+// ─── Prediction types (formerly in predictionEngine.ts) ──────────────────────
+
+export interface ActionCandidate {
+  label: string;
+  selector: string;
+  role: "primary" | "secondary" | "link" | "unknown";
+  boundingBox: DOMRect;
+  confidenceScore: number;
+  formSelector?: string;
+}
+
+export interface ScoreBreakdown {
+  proximityScore: number;
+  intentScore: number;
+  formScore: number;
+  roleScore: number;
+  directionScore: number;
+}
+
+export interface RankedPrediction {
+  action: ActionCandidate;
+  totalScore: number;
+  breakdown: ScoreBreakdown;
+  inputText?: string;
+}
+
+export interface PredictionResult {
+  topThree: RankedPrediction[];
+  confidence: number;
+  isDone?: boolean;
+  doneReason?: string;
 }

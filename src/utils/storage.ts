@@ -8,7 +8,7 @@ const STORAGE_KEYS = {
   USER_KEYS: "flowRecorder_userKeys",
 } as const;
 
-export type ProviderName = "gemini" | "chatgpt" | "nova" | "chatgpt-tab";
+export type ProviderName = "gemini" | "chatgpt" | "nova";
 
 export interface UserKeys {
   gemini?: string;

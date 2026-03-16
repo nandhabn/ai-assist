@@ -16,11 +16,19 @@
 
 import { isAgentEnabled } from "@/utils/storage";
 import { setMissionPrompt, setAutofillTargetForm } from "./agent/agentPanel";
-import { getGeminiCallStats, resetGeminiCallStats } from "@/utils/geminiProvider";
+import {
+  getGeminiCallStats,
+  resetGeminiCallStats,
+} from "@/utils/geminiProvider";
 import type { FormFieldInfo } from "@/types/ai";
 import { state } from "./state";
 import { getRLState } from "./ai/rateLimit";
-import { initializeAgent, setAgentState, handleAgentStart, handleAgentContinue } from "./agent/agentManager";
+import {
+  initializeAgent,
+  setAgentState,
+  handleAgentStart,
+  handleAgentContinue,
+} from "./agent/agentManager";
 import { checkAndShowFormBanner } from "./form/formDetect";
 
 // ─── Initialization ───────────────────────────────────────────────────────────
@@ -33,9 +41,13 @@ async function init() {
   state.isAgentGloballyEnabled = await isAgentEnabled();
 
   try {
-    const resp = await chrome.runtime.sendMessage({ action: "GET_MISSION_PROMPT" });
+    const resp = await chrome.runtime.sendMessage({
+      action: "GET_MISSION_PROMPT",
+    });
     if (resp?.prompt) state.currentMission = resp.prompt;
-  } catch (_) { /* no-op */ }
+  } catch (_) {
+    /* no-op */
+  }
 
   chrome.runtime.onMessage.addListener(handleMessage);
   document.addEventListener("focusin", captureFormFocus, true);
@@ -51,7 +63,9 @@ async function init() {
           setTimeout(async () => {
             const continued = await handleAgentContinue();
             if (!continued) {
-              console.log("[Flow Agent] No resume snapshot found — starting fresh.");
+              console.log(
+                "[Flow Agent] No resume snapshot found — starting fresh.",
+              );
               handleAgentStart();
             }
           }, 800);
@@ -64,7 +78,10 @@ async function init() {
 
   (window as any).__flowAgent = {
     geminiStats: () => getGeminiCallStats(),
-    resetGeminiStats: () => { resetGeminiCallStats(); console.log("[FlowAgent] Gemini stats reset."); },
+    resetGeminiStats: () => {
+      resetGeminiCallStats();
+      console.log("[FlowAgent] Gemini stats reset.");
+    },
     rlState: () => getRLState(),
     agentActive: () => state.isAgentExecutorActive,
     agentSession: () => state.agentExecutor?.getSession() ?? null,
@@ -76,7 +93,9 @@ async function init() {
 
 function onPageNavigate(newUrl: string): void {
   if (newUrl === state.currentPageUrl) return;
-  console.log(`[FlowAgent] Navigation detected: ${state.currentPageUrl} → ${newUrl}`);
+  console.log(
+    `[FlowAgent] Navigation detected: ${state.currentPageUrl} → ${newUrl}`,
+  );
   state.activeFormForAutofill = null;
   state.activeFormFields = null;
   state.currentPageUrl = newUrl;
@@ -100,7 +119,9 @@ function patchHistoryForNavigation(): void {
     onPageNavigate(window.location.href);
   };
 
-  history.replaceState = function (...args: Parameters<typeof history.replaceState>) {
+  history.replaceState = function (
+    ...args: Parameters<typeof history.replaceState>
+  ) {
     originalReplaceState(...args);
     onPageNavigate(window.location.href);
   };
@@ -246,7 +267,6 @@ function handleMessage(
   }
   return true;
 }
-
 
 // --- Run ---
 init();

@@ -1,4 +1,4 @@
-import { RankedPrediction, PredictionResult } from "../utils/predictionEngine";
+import { RankedPrediction, PredictionResult } from "../types/ai";
 
 const PANEL_ID = "__flow-agent-panel__";
 let onExecuteCallback: (prediction: RankedPrediction) => void;

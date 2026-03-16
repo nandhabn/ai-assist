@@ -8,8 +8,12 @@
  * No scoring, no fallbacks, no label-matching — the AI decides.
  */
 
-import type { AgentPageElement, CompactContext, PostActionObservation } from "@/types/ai";
-import type { PredictionResult } from "@/utils/predictionEngine";
+import type {
+  AgentPageElement,
+  CompactContext,
+  PostActionObservation,
+} from "@/types/ai";
+import type { PredictionResult } from "@/types/ai";
 import { state } from "../state";
 import { getAIProvider } from "../ai/providers";
 import { buildAgentToolPrompt } from "@/config/prompts";
@@ -111,11 +115,19 @@ export function buildPageElements(): AgentPageElement[] {
   const collected: { el: HTMLElement; item: AgentPageElement }[] = [];
   const seen = new Set<string>();
 
-  const add = (el: HTMLElement, label: string, type: AgentPageElement["type"], currentValue?: string) => {
+  const add = (
+    el: HTMLElement,
+    label: string,
+    type: AgentPageElement["type"],
+    currentValue?: string,
+  ) => {
     const key = `${type}:${label}`;
     if (!label || label.length < 2 || seen.has(key)) return;
     seen.add(key);
-    collected.push({ el, item: { label, type, ...(currentValue ? { currentValue } : {}) } });
+    collected.push({
+      el,
+      item: { label, type, ...(currentValue ? { currentValue } : {}) },
+    });
   };
 
   // Shared helper: strip price/currency/rating noise that appears when an element's
@@ -125,8 +137,8 @@ export function buildPageElements(): AgentPageElement[] {
   // but: "iPhone 17 Pro" is left intact (short model number kept)
   const cleanLabel = (s: string): string =>
     s
-      .replace(/[\u20a8\u20b9$£€¥].*/, "")         // cut at any currency symbol
-      .replace(/\d{4,}[\d,]*(\.\d+)?.*/, "")        // cut at 4+ digit price runs
+      .replace(/[\u20a8\u20b9$£€¥].*/, "") // cut at any currency symbol
+      .replace(/\d{4,}[\d,]*(\.\d+)?.*/, "") // cut at 4+ digit price runs
       .replace(/\s{2,}/g, " ")
       .trim()
       .slice(0, 60);
@@ -165,7 +177,9 @@ export function buildPageElements(): AgentPageElement[] {
         const inputVal = safeStr((el as HTMLInputElement).value).trim();
 
         const label =
-          (ariaLabel.length > 0 && ariaLabel.length <= 60 ? cleanLabel(ariaLabel) : "") ||
+          (ariaLabel.length > 0 && ariaLabel.length <= 60
+            ? cleanLabel(ariaLabel)
+            : "") ||
           inputVal.slice(0, 60) ||
           cleanLabel(firstTextNode(el)) ||
           cleanLabel(el.getAttribute("title")?.trim() ?? "") ||
@@ -173,7 +187,9 @@ export function buildPageElements(): AgentPageElement[] {
           "";
 
         add(el, label, "button");
-      } catch { /* skip element on any unexpected DOM property access */ }
+      } catch {
+        /* skip element on any unexpected DOM property access */
+      }
     });
 
   // Links — extract the first clean text node to avoid concatenated price/rating/store
@@ -187,13 +203,17 @@ export function buildPageElements(): AgentPageElement[] {
       const ariaLabel = el.getAttribute("aria-label")?.trim() ?? "";
 
       const label =
-        (ariaLabel.length > 0 && ariaLabel.length <= 60 ? cleanLabel(ariaLabel) : "") ||
+        (ariaLabel.length > 0 && ariaLabel.length <= 60
+          ? cleanLabel(ariaLabel)
+          : "") ||
         cleanLabel(firstTextNode(el)) ||
         el.getAttribute("title")?.trim().slice(0, 40) ||
         "";
 
       add(el, label, "link");
-    } catch { /* skip */ }
+    } catch {
+      /* skip */
+    }
   });
 
   // Text inputs — label priority: associated <label> → aria-label → placeholder → name
@@ -204,21 +224,30 @@ export function buildPageElements(): AgentPageElement[] {
     .forEach((el) => {
       try {
         const labelFromDom = el.id
-          ? document.querySelector<HTMLLabelElement>(`label[for="${el.id}"]`)?.textContent?.trim() ?? ""
+          ? (document
+              .querySelector<HTMLLabelElement>(`label[for="${el.id}"]`)
+              ?.textContent?.trim() ?? "")
           : "";
         const label = String(
           labelFromDom ||
-          el.getAttribute("aria-label") ||
-          el.getAttribute("data-testid") ||
-          el.getAttribute("placeholder") ||
-          el.getAttribute("title") ||
-          el.getAttribute("name") ||
-          ""
+            el.getAttribute("aria-label") ||
+            el.getAttribute("data-testid") ||
+            el.getAttribute("placeholder") ||
+            el.getAttribute("title") ||
+            el.getAttribute("name") ||
+            "",
         )
           .trim()
           .slice(0, 80);
-        add(el, label || `input[${el.type}]`, "input", safeStr(el.value) || undefined);
-      } catch { /* skip */ }
+        add(
+          el,
+          label || `input[${el.type}]`,
+          "input",
+          safeStr(el.value) || undefined,
+        );
+      } catch {
+        /* skip */
+      }
     });
 
   // Textareas
@@ -226,14 +255,16 @@ export function buildPageElements(): AgentPageElement[] {
     try {
       const label = String(
         el.getAttribute("aria-label") ??
-        el.getAttribute("data-testid") ??
-        el.getAttribute("placeholder") ??
-        "textarea"
+          el.getAttribute("data-testid") ??
+          el.getAttribute("placeholder") ??
+          "textarea",
       )
         .trim()
         .slice(0, 80);
       add(el, label, "textarea", safeStr(el.value) || undefined);
-    } catch { /* skip */ }
+    } catch {
+      /* skip */
+    }
   });
 
   // Selects
@@ -244,36 +275,50 @@ export function buildPageElements(): AgentPageElement[] {
         : null;
       const label = String(
         el.getAttribute("aria-label") ??
-        el.getAttribute("data-testid") ??
-        labelEl?.textContent ??
-        el.getAttribute("name") ??
-        "select"
+          el.getAttribute("data-testid") ??
+          labelEl?.textContent ??
+          el.getAttribute("name") ??
+          "select",
       )
         .trim()
         .slice(0, 80);
-      const currentValue = safeStr(el.options[el.selectedIndex]?.text).trim() || undefined;
+      const currentValue =
+        safeStr(el.options[el.selectedIndex]?.text).trim() || undefined;
       add(el, label, "select", currentValue);
-    } catch { /* skip */ }
+    } catch {
+      /* skip */
+    }
   });
 
   // Contenteditable divs (e.g. tweet composer, rich text editors)
-  document.querySelectorAll<HTMLElement>("[contenteditable='true'], [contenteditable='']").forEach((el) => {
-    try {
-      const style = window.getComputedStyle(el);
-      if (style.display === "none" || style.visibility === "hidden") return;
-      if (el.offsetWidth === 0 && el.offsetHeight === 0) return;
-      const label = String(
-        el.getAttribute("aria-label") ??
-        el.getAttribute("data-testid") ??
-        el.getAttribute("placeholder") ??
-        el.getAttribute("title") ??
-        "rich text editor"
-      )
-        .trim()
-        .slice(0, 80);
-      add(el, label, "textarea", el.textContent?.trim().slice(0, 60) || undefined);
-    } catch { /* skip */ }
-  });
+  document
+    .querySelectorAll<HTMLElement>(
+      "[contenteditable='true'], [contenteditable='']",
+    )
+    .forEach((el) => {
+      try {
+        const style = window.getComputedStyle(el);
+        if (style.display === "none" || style.visibility === "hidden") return;
+        if (el.offsetWidth === 0 && el.offsetHeight === 0) return;
+        const label = String(
+          el.getAttribute("aria-label") ??
+            el.getAttribute("data-testid") ??
+            el.getAttribute("placeholder") ??
+            el.getAttribute("title") ??
+            "rich text editor",
+        )
+          .trim()
+          .slice(0, 80);
+        add(
+          el,
+          label,
+          "textarea",
+          el.textContent?.trim().slice(0, 60) || undefined,
+        );
+      } catch {
+        /* skip */
+      }
+    });
 
   // ── Sort by relevance so the AI always sees the most actionable items ────────
   //
@@ -286,8 +331,10 @@ export function buildPageElements(): AgentPageElement[] {
   // This ensures buttons like "Visit site" or "Buy" inside a sidebar that just
   // opened are ranked first even if they appear late in DOM order.
 
-  const SHOPPING_RE = /\b(buy|cart|purchase|checkout|add to|order|visit site|proceed|pay|place order)\b/i;
-  const PANEL_SELECTOR = '[role="dialog"], [role="complementary"], [role="alertdialog"], aside, [aria-modal="true"]';
+  const SHOPPING_RE =
+    /\b(buy|cart|purchase|checkout|add to|order|visit site|proceed|pay|place order)\b/i;
+  const PANEL_SELECTOR =
+    '[role="dialog"], [role="complementary"], [role="alertdialog"], aside, [aria-modal="true"]';
   const vw = window.innerWidth;
   const vh = window.innerHeight;
 
@@ -353,7 +400,9 @@ export async function predictForAgent(): Promise<PredictionResult> {
   if (state.aiProvider === undefined) state.aiProvider = await getAIProvider();
 
   if (!state.aiProvider?.callAgentTool) {
-    console.error("[Agent] No AI provider with callAgentTool support — cannot continue.");
+    console.error(
+      "[Agent] No AI provider with callAgentTool support — cannot continue.",
+    );
     return { topThree: [], confidence: 0 };
   }
 
@@ -380,14 +429,20 @@ export async function predictForAgent(): Promise<PredictionResult> {
       url: window.location.href,
       title: document.title,
       description:
-        (document.querySelector('meta[name="description"]') as HTMLMetaElement | null)
-          ?.content ?? "",
+        (
+          document.querySelector(
+            'meta[name="description"]',
+          ) as HTMLMetaElement | null
+        )?.content ?? "",
       ogType: "",
       ogSiteName: "",
       keywords: "",
       canonical:
-        (document.querySelector('link[rel="canonical"]') as HTMLLinkElement | null)
-          ?.href ?? "",
+        (
+          document.querySelector(
+            'link[rel="canonical"]',
+          ) as HTMLLinkElement | null
+        )?.href ?? "",
     },
     mission: state.currentMission || undefined,
     currentUrl: window.location.href,
@@ -406,14 +461,19 @@ export async function predictForAgent(): Promise<PredictionResult> {
     // prompt size manageable while still giving the AI a meaningful memory.
     const allTurns = state.agentExecutor.getTurns();
     if (allTurns.length > 0) {
-      context.turnHistory = allTurns.slice(-10) as import("@/types/ai").AgentTurn[];
+      context.turnHistory = allTurns.slice(
+        -10,
+      ) as import("@/types/ai").AgentTurn[];
     }
     if (session?.plan) {
       context.plan = session.plan;
       // Use the AI-reported plan step (stored on session) rather than total tool-call count,
       // since multiple tool calls may be needed per plan step.
       const estimatedSteps = session.estimatedSteps ?? 99;
-      context.currentPlanStep = Math.min(session.currentPlanStep ?? 1, estimatedSteps);
+      context.currentPlanStep = Math.min(
+        session.currentPlanStep ?? 1,
+        estimatedSteps,
+      );
     }
   }
 
@@ -432,14 +492,23 @@ export async function predictForAgent(): Promise<PredictionResult> {
 
   // If the AI chose a skill tool, resolve it to its step sequence so
   // executeAgentToolCall can run them without knowing about skills.
-  if (toolCall.tool && !(["navigate","click","type","scroll","message","done"] as string[]).includes(toolCall.tool)) {
+  if (
+    toolCall.tool &&
+    !(
+      ["navigate", "click", "type", "scroll", "message", "done"] as string[]
+    ).includes(toolCall.tool)
+  ) {
     const allSkillTools = (context.skills ?? []).flatMap((s) => s.tools ?? []);
     const skillTool = allSkillTools.find((t) => t.name === toolCall.tool);
     if (skillTool) {
       toolCall.skillSteps = skillTool.steps;
-      console.log(`[Agent] Resolved skill tool "${toolCall.tool}" → ${skillTool.steps.length} steps`);
+      console.log(
+        `[Agent] Resolved skill tool "${toolCall.tool}" → ${skillTool.steps.length} steps`,
+      );
     } else {
-      console.warn(`[Agent] Unknown tool "${toolCall.tool}" — not a built-in and not found in any skill`);
+      console.warn(
+        `[Agent] Unknown tool "${toolCall.tool}" — not a built-in and not found in any skill`,
+      );
     }
   }
 
@@ -456,8 +525,15 @@ export async function predictForAgent(): Promise<PredictionResult> {
   }
 
   if (toolCall.tool === "done") {
-    console.log(`[Agent] done — ${toolCall.params.reason ?? "mission complete"}`);
-    return { topThree: [], confidence: 0, isDone: true, doneReason: toolCall.params.reason ?? "Mission complete" };
+    console.log(
+      `[Agent] done — ${toolCall.params.reason ?? "mission complete"}`,
+    );
+    return {
+      topThree: [],
+      confidence: 0,
+      isDone: true,
+      doneReason: toolCall.params.reason ?? "Mission complete",
+    };
   }
 
   const score = toolCall.confidenceEstimate ?? 0.8;

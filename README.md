@@ -31,7 +31,7 @@ A **Manifest V3** Chrome Extension that does two things at once:
 - **Deterministic-first**: weighted scoring across five factors before any AI call.
 
   | Factor    | Weight |
-  |-----------|--------|
+  | --------- | ------ |
   | Proximity | 0.30   |
   | Intent    | 0.25   |
   | Form      | 0.25   |
@@ -52,12 +52,12 @@ A **Manifest V3** Chrome Extension that does two things at once:
 
 ## Tech Stack
 
-| Layer      | Technology                                        |
-|------------|---------------------------------------------------|
-| Language   | TypeScript 5                                      |
-| UI (popup) | React 18, CSS modules                             |
-| Build      | Vite 5 (two configs: popup/background + content)  |
-| Extension  | Manifest V3, service worker, content script       |
+| Layer      | Technology                                            |
+| ---------- | ----------------------------------------------------- |
+| Language   | TypeScript 5                                          |
+| UI (popup) | React 18, CSS modules                                 |
+| Build      | Vite 5 (two configs: popup/background + content)      |
+| Extension  | Manifest V3, service worker, content script           |
 | AI         | Gemini / ChatGPT via pluggable `AIProvider` interface |
 
 ---
@@ -165,6 +165,7 @@ npm run build
 ```
 
 This runs two Vite builds:
+
 - **`vite build`** — popup (`popup.html`, `popup.js`) and background service worker (`background.js`).
 - **`vite build --config vite.config.content.ts`** — content script (`content.js`) and ChatGPT bridge (`chatgptBridge.js`).
 
@@ -187,8 +188,6 @@ npm run dev
 npm run check
 ```
 
-
-
 ---
 
 ## Usage
@@ -209,6 +208,7 @@ npm run check
 ### Live Agent Panel
 
 The floating panel appears automatically on every page once the extension is loaded. It:
+
 - Displays top-3 predicted next actions with confidence and score breakdown.
 - Lets you **Run** a prediction or **Fill Form** when a form is active.
 - Can be toggled from the **Control tab** in the popup.
@@ -221,28 +221,28 @@ The floating panel appears automatically on every page once the extension is loa
 
 The background service worker brokers all communication:
 
-| Action            | Sender  | Effect                                          |
-|-------------------|---------|-------------------------------------------------|
-| `START_RECORDING` | Popup   | Persists state; broadcasts to all tabs          |
-| `STOP_RECORDING`  | Popup   | Persists state; broadcasts to all tabs          |
-| `GET_EVENTS`      | Popup   | Returns stored events                           |
-| `CLEAR_EVENTS`    | Popup   | Clears events from storage                      |
-| `SAVE_SESSION`    | Popup   | Appends current events as a saved session       |
-| `TOGGLE_AGENT`    | Popup   | Enables/disables the agent panel on all tabs    |
-| `EVENT_RECORDED`  | Content | Keeps service worker alive                      |
+| Action            | Sender  | Effect                                       |
+| ----------------- | ------- | -------------------------------------------- |
+| `START_RECORDING` | Popup   | Persists state; broadcasts to all tabs       |
+| `STOP_RECORDING`  | Popup   | Persists state; broadcasts to all tabs       |
+| `GET_EVENTS`      | Popup   | Returns stored events                        |
+| `CLEAR_EVENTS`    | Popup   | Clears events from storage                   |
+| `SAVE_SESSION`    | Popup   | Appends current events as a saved session    |
+| `TOGGLE_AGENT`    | Popup   | Enables/disables the agent panel on all tabs |
+| `EVENT_RECORDED`  | Content | Keeps service worker alive                   |
 
 ### Storage Keys
 
 All stored in `chrome.storage.local`:
 
-| Key                             | Value                                  |
-|---------------------------------|----------------------------------------|
-| `flowRecorder_events`           | Array of `RecordedEvent`               |
-| `flowRecorder_sessionId`        | Current session ID                     |
-| `flowRecorder_isRecording`      | Boolean                                |
-| `flowRecorder_sessions`         | Saved sessions                         |
-| `flowRecorder_lastUserAction`   | Last event (for agent context)         |
-| `flowRecorder_agentEnabled`     | Whether the agent panel is on          |
+| Key                           | Value                          |
+| ----------------------------- | ------------------------------ |
+| `flowRecorder_events`         | Array of `RecordedEvent`       |
+| `flowRecorder_sessionId`      | Current session ID             |
+| `flowRecorder_isRecording`    | Boolean                        |
+| `flowRecorder_sessions`       | Saved sessions                 |
+| `flowRecorder_lastUserAction` | Last event (for agent context) |
+| `flowRecorder_agentEnabled`   | Whether the agent panel is on  |
 
 ### Prediction Pipeline
 
