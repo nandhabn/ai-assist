@@ -213,13 +213,31 @@ export function findAllElementsByLabel(label: string): LabelCandidate[] {
   const seen = new Set<HTMLElement>();
   const matched: HTMLElement[] = [];
 
+  /**
+   * Returns all human-readable label candidates for an element.
+   * Checking every source (aria-label, title, placeholder, textContent, data-testid)
+   * ensures inner text is always tried even when other attributes are present.
+   */
+  const labelTexts = (el: HTMLElement): string[] => {
+    return [
+      el.getAttribute("aria-label"),
+      el.getAttribute("title"),
+      el.getAttribute("placeholder"),
+      el.textContent,
+      el.getAttribute("data-testid"),
+    ]
+      .filter((v): v is string => v !== null && v !== "")
+      .map((v) => v.replace(/\s+/g, " ").toLowerCase().trim())
+      .filter((v) => v.length > 0);
+  };
+
   for (const tier of [
     (t: string) => t === needle,
     (t: string) => t.startsWith(needle),
     (t: string) => t.includes(needle),
   ]) {
     for (const el of visible) {
-      if (!seen.has(el) && tier(elementLabelText(el))) {
+      if (!seen.has(el) && labelTexts(el).some(tier)) {
         seen.add(el);
         matched.push(el);
       }

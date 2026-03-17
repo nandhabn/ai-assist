@@ -5,14 +5,10 @@ import {
   CompactContext,
   AIPrediction,
   AgentToolCall,
-  FormFieldInfo,
-  AIFormData,
 } from "../types/ai";
 import {
   buildPredictionPrompt,
   buildAgentToolPrompt,
-  buildFormDataPrompt,
-  formatFieldDescriptions,
 } from "@/config/prompts";
 
 function aiLog(msg: string) {
@@ -270,89 +266,6 @@ export class GeminiProvider implements AIProvider {
     }
   }
 
-  async generateFormData(
-    fields: FormFieldInfo[],
-    pageContext?: string,
-  ): Promise<AIFormData> {
-    geminiStats.total++;
-    aiLog(
-      `[Gemini] generateFormData START | Fields: ${fields.length} | Context: ${pageContext || "none"} | ${geminiStatsLabel()}`,
-    );
-    const fieldDescriptions = formatFieldDescriptions(fields);
-    const prompt = buildFormDataPrompt(fieldDescriptions, pageContext);
-
-    try {
-      const response = await fetch(this.endpoint, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-goog-api-key": this.apiKey,
-        },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: {
-            response_mime_type: "application/json",
-            temperature: 0.7,
-            // Form data output scales with field count; base 512 + 40 per field.
-            maxOutputTokens: this.outputTokenBudget(
-              prompt,
-              Math.max(512, 512 + fields.length * 40),
-            ),
-            ...(this.isFlash ? { thinkingConfig: { thinkingBudget: 0 } } : {}),
-          },
-        }),
-      });
-
-      if (!response.ok) {
-        const errorBody = await response.text();
-        aiLog(`[Gemini] generateFormData FAILED | Status: ${response.status}`);
-        console.error(
-          "Gemini API form data request failed:",
-          response.status,
-          errorBody,
-        );
-        throw new Error(`Gemini API error: ${response.status}`);
-      }
-
-      const data = await response.json();
-      const candidate = data?.candidates?.[0];
-      if (!candidate || !candidate.content?.parts?.[0]?.text) {
-        const reason = candidate?.finishReason ?? "no candidates";
-        aiLog(`[Gemini] generateFormData NO CONTENT | finishReason: ${reason}`);
-        throw new Error(`Gemini returned no content (${reason})`);
-      }
-      const resultText = candidate.content.parts[0].text;
-      aiLog(`[Gemini] generateFormData RAW RESPONSE:\n${resultText}`);
-      let parsed: AIFormData;
-      try {
-        parsed = safeJsonParse<AIFormData>(resultText);
-      } catch (parseErr) {
-        console.error(
-          "[Gemini] generateFormData JSON parse FAILED. Raw text:",
-          resultText,
-        );
-        throw parseErr;
-      }
-
-      if (!parsed.fieldValues || typeof parsed.fieldValues !== "object") {
-        throw new Error("Invalid form data structure from Gemini API.");
-      }
-
-      aiLog(
-        `[Gemini] generateFormData SUCCESS | Keys: ${Object.keys(parsed.fieldValues).join(", ")} | ${geminiStatsLabel()}`,
-      );
-      geminiStats.success++;
-      return parsed;
-    } catch (error) {
-      geminiStats.error++;
-      aiLog(
-        `[Gemini] generateFormData ERROR | ${error} | ${geminiStatsLabel()}`,
-      );
-      console.error("Error generating form data with Gemini:", error);
-      throw new Error("Failed to generate form data from Gemini.");
-    }
-  }
-
   /**
    * Agent tool-calling mode.
    * Sends the page context to Gemini and asks it to call one of the typed agent
@@ -378,18 +291,11 @@ export class GeminiProvider implements AIProvider {
           contents: [{ parts: [{ text: prompt }] }],
           generationConfig: {
             response_mime_type: "application/json",
-            response_schema: {
-              type: "OBJECT",
-              properties: {
-                tool: { type: "STRING" },
-                // params is left unconstrained so skill tools can pass
-                // custom keys (e.g. "query") beyond the built-in set.
-                params: { type: "OBJECT" },
-                reasoning: { type: "STRING" },
-                confidenceEstimate: { type: "NUMBER" },
-              },
-              required: ["tool", "params", "reasoning", "confidenceEstimate"],
-            },
+            // NOTE: response_schema is intentionally omitted here.
+            // Specifying `params: { type: "OBJECT" }` without properties causes
+            // newer Gemini models to return an empty `{}` for params, stripping
+            // the label/url/text values the tool needs. Relying solely on
+            // response_mime_type + the prompt is sufficient and more robust.
             temperature: 0.1,
             maxOutputTokens: this.outputTokenBudget(prompt, 512),
             ...(this.isFlash ? { thinkingConfig: { thinkingBudget: 0 } } : {}),
@@ -439,6 +345,7 @@ export class GeminiProvider implements AIProvider {
         "scroll",
         "done",
         "message",
+        "bulk",
       ];
       if (
         !builtInTools.includes(toolCall.tool) &&

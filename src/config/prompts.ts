@@ -8,7 +8,7 @@
  * The providers (chatgptProvider, chatgptTabProvider, geminiProvider) import from here.
  */
 
-import { CompactContext, FormFieldInfo } from "@/types/ai";
+import { CompactContext } from "@/types/ai";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -85,27 +85,6 @@ function sanitizeSkillText(text: string): string {
         lower.startsWith("=== system") ||
         /^\s*\{?\s*"?role"?\s*:\s*"?system/i.test(lower)
       );
-    })
-    .join("\n");
-}
-
-/**
- * Formats an array of FormFieldInfo into a human-readable description string
- * that is included in AI prompts. Shared across all providers.
- */
-export function formatFieldDescriptions(fields: FormFieldInfo[]): string {
-  return fields
-    .map((f, i) => {
-      const parts: string[] = [`Field ${i + 1}:`];
-      if (f.name) parts.push(`name="${f.name}"`);
-      if (f.id) parts.push(`id="${f.id}"`);
-      parts.push(`type="${f.type}"`);
-      if (f.placeholder) parts.push(`placeholder="${f.placeholder}"`);
-      if (f.labelText) parts.push(`label="${f.labelText}"`);
-      if (f.ariaLabel) parts.push(`aria-label="${f.ariaLabel}"`);
-      if (f.options && f.options.length > 0)
-        parts.push(`options=[${f.options.map((o) => `"${o}"`).join(", ")}]`);
-      return parts.join(" ");
     })
     .join("\n");
 }
@@ -579,6 +558,7 @@ export function buildAgentToolPrompt(context: CompactContext): string {
     "  click(label)          — Click a button or link. The label MUST closely match one of the elements listed above.",
     "  type(label, text)     — Type 'text' into an input or textarea. 'label' is optional: omit it (leave empty) when a click just focused the target field — the text will go straight into the active element.",
     "  fill_form(fields)     — Fill multiple form fields in one step. 'fields' is a JSON object mapping each field's visible label (or aria-label / placeholder / name) to the value to enter. Handles text inputs, textareas, <select> dropdowns, checkboxes (use \"true\"/\"false\"), and radio buttons. Prefer this over multiple type() calls when filling a whole form.",
+    "  bulk(steps)           — Execute a short sequence of tool calls in a single agent step. LIMIT to at most 5 steps per bulk() call. If more actions are needed, emit this bulk() now and you will be called again to continue. Each step: { \"tool\": \"<name>\", \"params\": { … } }. Stops on first failure.",
     "  scroll(direction)     — Scroll 'up' or 'down' to reveal off-screen content.",
     "  message(message)      — Display a short status update to the user (key milestones only).",
     "  done(reason)          — Signal the mission is complete or unrecoverable.",
@@ -589,10 +569,11 @@ export function buildAgentToolPrompt(context: CompactContext): string {
     '  2. Call click() for buttons and links. The "label" MUST be an EXACT string copied from the INTERACTIVE ELEMENTS list above — do NOT paraphrase, abbreviate, or invent labels.',
     "  3. Call type() for single text inputs. Use fill_form() instead when filling two or more fields.",
     "  3b. Call fill_form() to fill an entire form at once — pass all fields as a single \"fields\" object. For checkboxes use \"true\" or \"false\". For selects / radios use the exact option text.",
-    "  4. Call done() ONLY when the page displays an explicit success: thank-you message, order confirmation, or order number.",
-    "  5. NEVER call done() just because you found, clicked, or viewed a product. The mission is only complete after checkout confirmation.",
-    "  6. If a sidebar or panel just opened, you are NOT done — look for 'Visit site', 'Buy', 'Add to cart', or 'Checkout' actions inside it.",
-    "  7. Call message() to surface important findings (e.g. prices, product details) before navigating away from a result page.",
+    "  3c. Call bulk() when you need to repeat the same action or execute a known sequence of actions. ALWAYS cap each bulk() at 5 steps. If more actions remain, issue the first 5 now — you will be called again to continue.",
+    "  4. Call done() ONLY when the mission goal is explicitly confirmed on the page.",
+    "  5. Do NOT call done() prematurely — the mission is complete only after a clear confirmation is visible.",
+    "  6. If a panel or overlay just opened, look for the relevant action inside it before considering the mission complete.",
+    "  7. Call message() to report key findings or status updates before navigating away.",
     "  8. NEVER repeat an action that already appears in SESSION HISTORY as successfully executed on the current page.",
     "  9. Consult RESULT OF LAST ACTION (when present) to understand exactly what changed on the page before deciding the next step.",
     "  10. When BEST MATCHES are listed, prefer those elements unless they clearly don't fit the current step.",
@@ -605,63 +586,17 @@ export function buildAgentToolPrompt(context: CompactContext): string {
     `  click      → { "label": "<EXACT string from INTERACTIVE ELEMENTS>" }`,
     `  type       → { "label": "<input label or empty>", "text": "<text to type>" }`,
     `  fill_form  → { "fields": { "<field label>": "<value>", "<field label 2>": "<value 2>" } }`,
+    `  bulk       → { "steps": [ { "tool": "<name>", "params": { … } }, … ] }`,
     `  scroll     → { "direction": "up" | "down" }`,
     `  message    → { "message": "<short status>" }`,
     `  done       → { "reason": "<why complete or unrecoverable>" }`,
     ...skillParamFormatLines,
     "",
     "{",
-    `  "tool": "navigate | click | type | fill_form | scroll | message | done${skillToolNames.length > 0 ? ` | ${skillToolNames.join(" | ")}` : ""}",`,
+    `  "tool": "navigate | click | type | fill_form | bulk | scroll | message | done${skillToolNames.length > 0 ? ` | ${skillToolNames.join(" | ")}` : ""}",`,
     '  "params": { <see per-tool params above> },',
     '  "reasoning": "<string — max 60 chars explaining why this tool was chosen>",',
     '  "confidenceEstimate": <number between 0.0 and 1.0>',
-    "}",
-  ].join("\n");
-}
-
-// ─── Form Data Generation Prompts ─────────────────────────────────────────────
-
-/** System message used by ChatGPT API for form-data generation calls. */
-export const FORM_DATA_SYSTEM_PROMPT =
-  "You are a test data generator that produces realistic, coherent form data for web automation.\n" +
-  "All generated values for a single request must belong to the same consistent persona (same name, address, email, etc.).\n" +
-  "Output ONLY a valid JSON object matching the exact schema provided — no markdown, no extra keys, no commentary.";
-
-/**
- * User prompt for generating realistic test data for form fields.
- * Used by all three providers.
- */
-export function buildFormDataPrompt(
-  fieldDescriptions: string,
-  pageContext?: string,
-): string {
-  return [
-    "=== ROLE ===",
-    "You are a test data generator for web form automation.",
-    "Generate realistic, contextually appropriate, and internally coherent test data for the form fields below.",
-    "",
-    "=== PAGE CONTEXT ===",
-    pageContext || "(none provided)",
-    "",
-    "=== FORM FIELDS ===",
-    fieldDescriptions,
-    "",
-    "=== GENERATION RULES ===",
-    "1. Use a single consistent persona across all fields (same name, address, email, phone, etc.).",
-    "2. Email addresses MUST use @example.com or @test.com domains only.",
-    "3. Passwords MUST be strong: 12+ characters, mixed uppercase and lowercase, at least one number, at least one symbol.",
-    "4. Phone numbers MUST use a valid format for the detected locale (default: US +1 format).",
-    "5. For select, dropdown, or radio button fields with listed options, you MUST choose exactly one of the provided option strings verbatim — do not invent new values.",
-    "6. Use the field's 'name' attribute as the response key. If 'name' is empty, use 'id'. If both are empty, use 'label' or 'aria-label'.",
-    "7. If the page context begins with 'User mission:', tailor the generated values to directly fulfill that mission.",
-    "",
-    "=== OUTPUT FORMAT ===",
-    "Respond with ONLY a valid JSON object. No markdown fences, no extra keys, no commentary.",
-    "{",
-    '  "fieldValues": {',
-    '    "<fieldKey1>": "<generated value 1>",',
-    '    "<fieldKey2>": "<generated value 2>"',
-    "  }",
     "}",
   ].join("\n");
 }

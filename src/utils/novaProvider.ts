@@ -4,15 +4,10 @@ import {
   AIProvider,
   CompactContext,
   AIPrediction,
-  FormFieldInfo,
-  AIFormData,
 } from "../types/ai";
 import {
   PREDICTION_SYSTEM_PROMPT,
-  FORM_DATA_SYSTEM_PROMPT,
   buildPredictionPrompt,
-  buildFormDataPrompt,
-  formatFieldDescriptions,
 } from "@/config/prompts";
 
 function aiLog(msg: string) {
@@ -333,33 +328,4 @@ export class NovaProvider implements AIProvider {
     }
   }
 
-  async generateFormData(
-    fields: FormFieldInfo[],
-    pageContext?: string,
-  ): Promise<AIFormData> {
-    aiLog(
-      `[Nova] generateFormData START | Model: ${this.cfg.model} | Fields: ${fields.length} | Context: ${pageContext || "none"}`,
-    );
-
-    const fieldDescriptions = formatFieldDescriptions(fields);
-    const prompt = buildFormDataPrompt(fieldDescriptions, pageContext);
-
-    try {
-      const raw = await this.converse(FORM_DATA_SYSTEM_PROMPT, prompt, 0.7);
-      const parsed = JSON.parse(this.extractJson(raw)) as AIFormData;
-
-      if (!parsed.fieldValues || typeof parsed.fieldValues !== "object") {
-        throw new Error("Invalid form data structure from Nova.");
-      }
-
-      aiLog(
-        `[Nova] generateFormData SUCCESS | Keys: ${Object.keys(parsed.fieldValues).join(", ")}`,
-      );
-      return parsed;
-    } catch (error) {
-      aiLog(`[Nova] generateFormData ERROR | ${error}`);
-      console.error("Error generating form data with Nova:", error);
-      throw new Error("Failed to generate form data from Amazon Nova.");
-    }
-  }
 }

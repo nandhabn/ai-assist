@@ -2,17 +2,15 @@ import type { AgentToolParams } from "@/types/ai";
 import type { ExecuteResult, ToolHandler } from "./types";
 
 /**
- * fill_form tool — fills multiple form fields at once from a label→value map.
+ * fill_form tool — fills all currently-visible form fields from a label→value map.
  *
- * Handles:
- *   - text / email / number / tel / date / password inputs
- *   - textareas
- *   - <select> dropdowns (matched by option text or value attribute)
- *   - checkboxes  (value "true" / "yes" / "1" / "checked" → checked)
- *   - radio buttons (finds sibling radio with matching value or label)
+ * Single-pass by design: if a field is not found (e.g. it appears dynamically
+ * after another field is changed), it is reported in the partial result and the
+ * agent loop will call fill_form again after observing the updated DOM.
  *
- * Uses the native React / Vue compatible setter so framework state machines
- * see the change — same approach as the `type` tool.
+ * Handles: text / email / number / tel / date / password inputs, textareas,
+ * <select> dropdowns, checkboxes, radio buttons, and contenteditable elements.
+ * Uses the React/Vue-compatible native setter so framework state machines see the change.
  */
 export class FillFormTool implements ToolHandler {
   async execute(params: AgentToolParams): Promise<ExecuteResult> {
@@ -22,12 +20,13 @@ export class FillFormTool implements ToolHandler {
     }
 
     const filled: string[] = [];
-    const failed: string[] = [];
+    const notFound: string[] = [];
+    const errored: string[] = [];
 
     for (const [fieldLabel, value] of Object.entries(fields)) {
       const target = this.#findField(fieldLabel);
       if (!target) {
-        failed.push(fieldLabel);
+        notFound.push(fieldLabel);
         continue;
       }
 
@@ -46,25 +45,31 @@ export class FillFormTool implements ToolHandler {
         } else if ((target as HTMLElement).isContentEditable) {
           this.#fillContentEditable(target as HTMLElement, value);
         } else {
-          failed.push(fieldLabel);
+          notFound.push(fieldLabel);
           continue;
         }
         filled.push(fieldLabel);
-      } catch {
-        failed.push(fieldLabel);
+      } catch (e) {
+        errored.push(`${fieldLabel} (${e instanceof Error ? e.message : "error"})`);
       }
     }
 
     if (filled.length === 0) {
       return {
         success: false,
-        failureReason: `fill_form: could not fill any fields. Failed: ${failed.join(", ")}`,
+        failureReason: `fill_form: could not fill any fields.${notFound.length ? ` Not found: ${notFound.join(", ")}.` : ""}${errored.length ? ` Errors: ${errored.join("; ")}.` : ""}`,
       };
     }
 
+    const warnings: string[] = [];
+    if (notFound.length > 0)
+      warnings.push(`Fields not yet visible (may have appeared dynamically — call fill_form again): ${notFound.join(", ")}`);
+    if (errored.length > 0)
+      warnings.push(`Errors: ${errored.join("; ")}`);
+
     return {
       success: true,
-      ...(failed.length > 0 ? { failureReason: `Partial: could not fill ${failed.join(", ")}` } : {}),
+      ...(warnings.length > 0 ? { failureReason: warnings.join(" | ") } : {}),
     };
   }
 

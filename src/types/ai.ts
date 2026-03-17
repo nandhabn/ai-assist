@@ -1,31 +1,6 @@
 // src/types/ai.ts
 
 /**
- * Metadata describing a single form field, used for AI-powered data generation.
- */
-export interface FormFieldInfo {
-  name: string;
-  id: string;
-  type: string;
-  placeholder: string;
-  labelText: string;
-  ariaLabel: string;
-  /** Available options for select/dropdown and radio group fields (excludes empty/placeholder options). */
-  options?: string[];
-}
-
-/**
- * The structured response from AI when generating form fill data.
- */
-export interface AIFormData {
-  /**
-   * A mapping of field identifiers (name, id, label, or aria-label) to generated values.
-   * Each key should correspond to one of the fields described in the request.
-   */
-  fieldValues: Record<string, string>;
-}
-
-/**
  * Defines the standard interface for an AI prediction provider.
  * This abstraction allows for swapping different AI backends (e.g., Gemini, Amazon Nova)
  * without changing the core application logic.
@@ -37,19 +12,6 @@ export interface AIProvider {
    * @returns A promise that resolves to an AIPrediction object.
    */
   predictNextAction(context: CompactContext): Promise<AIPrediction>;
-
-  /**
-   * Generates realistic test data for a set of form fields using AI.
-   * The AI analyzes field names, types, labels, and placeholders to produce
-   * contextually appropriate values (e.g., real-looking emails, names, addresses).
-   * @param fields Array of form field metadata describing each field.
-   * @param pageContext Optional string describing the page context (e.g., "signup form", "checkout").
-   * @returns A promise that resolves to an AIFormData object with generated values.
-   */
-  generateFormData(
-    fields: FormFieldInfo[],
-    pageContext?: string,
-  ): Promise<AIFormData>;
 
   /**
    * Agent tool-calling interface.
@@ -82,7 +44,8 @@ export type AgentToolName =
   | "scroll"
   | "done"
   | "message"
-  | "fill_form";
+  | "fill_form"
+  | "bulk";
 
 /**
  * Parameters for each tool.  Only the relevant keys need to be set.
@@ -108,6 +71,12 @@ export interface AgentToolParams {
    * Example: { "Email": "user@example.com", "Country": "United States" }
    */
   fields?: Record<string, string>;
+  /**
+   * bulk: ordered list of sub-tool calls to execute in sequence.
+   * Each entry is { tool, params, reasoning? }.
+   * Execution stops on the first failure.
+   */
+  steps?: Array<{ tool: string; params?: AgentToolParams; reasoning?: string }>;
 }
 
 /**

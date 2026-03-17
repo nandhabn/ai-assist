@@ -24,23 +24,17 @@
  * │                                                                        │
  * │  pa, pb, pc each resolve  ─►  callers continue                        │
  * └─────────────────────────────────────────────────────────────────────────┘
- *
- * `generateFormData` calls are passed through to the underlying provider
- * individually because each form is unique and rarely concurrent.
+
  */
 
 import {
   AIProvider,
   CompactContext,
   AIPrediction,
-  FormFieldInfo,
-  AIFormData,
 } from "../types/ai";
 import {
   buildPredictionPrompt,
   formatPageMeta,
-  formatFieldDescriptions,
-  buildFormDataPrompt,
 } from "@/config/prompts";
 
 // ─── Config ───────────────────────────────────────────────────────────────────
@@ -64,8 +58,8 @@ export interface BatchingProviderOptions {
   maxBatchSize?: number;
 
   /**
-   * Fallback AIProvider used for `generateFormData` (and for single-item
-   * prediction batches when you want to reuse an already-configured provider).
+   * Fallback AIProvider used for single-item
+   * prediction batches when you want to reuse an already-configured provider.
    * If omitted the class talks to Gemini directly.
    */
   fallbackProvider?: AIProvider;
@@ -248,21 +242,6 @@ export class BatchingAIProvider implements AIProvider {
     });
   }
 
-  /**
-   * Passed directly to the fallback provider (or a single Gemini call).
-   * Form-fill requests are almost never concurrent so dedicated batching is
-   * not necessary here.
-   */
-  async generateFormData(
-    fields: FormFieldInfo[],
-    pageContext?: string,
-  ): Promise<AIFormData> {
-    if (this.fallbackProvider) {
-      return this.fallbackProvider.generateFormData(fields, pageContext);
-    }
-    return this.geminiGenerateFormData(fields, pageContext);
-  }
-
   // ── Flush logic ───────────────────────────────────────────────────────────
 
   private cancelFlushTimer() {
@@ -427,31 +406,6 @@ export class BatchingAIProvider implements AIProvider {
       throw new Error("Invalid JSON structure from Gemini API.");
     }
     return prediction;
-  }
-
-  /** Direct Gemini generateFormData — used when no fallbackProvider is set. */
-  private async geminiGenerateFormData(
-    fields: FormFieldInfo[],
-    pageContext?: string,
-  ): Promise<AIFormData> {
-    const fieldDescriptions = formatFieldDescriptions(fields);
-    const prompt = buildFormDataPrompt(fieldDescriptions, pageContext);
-    const raw = await this.geminiRawCall(prompt);
-    log(`generateFormData RAW RESPONSE:\n${raw}`);
-    let parsed: AIFormData;
-    try {
-      parsed = safeJsonParse<AIFormData>(raw);
-    } catch (parseErr) {
-      console.error(
-        "[BatchingProvider] generateFormData JSON parse FAILED. Raw text:",
-        raw,
-      );
-      throw parseErr;
-    }
-    if (!parsed.fieldValues || typeof parsed.fieldValues !== "object") {
-      throw new Error("Invalid form data structure from Gemini API.");
-    }
-    return parsed;
   }
 
   // ── Diagnostics ───────────────────────────────────────────────────────────

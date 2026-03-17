@@ -9,7 +9,7 @@
  */
 
 import type { PredictionResult, RankedPrediction } from "@/types/ai";
-import type { AgentTurn, FormFieldInfo } from "@/types/ai";
+import type { AgentTurn } from "@/types/ai";
 
 // ─── Configuration ────────────────────────────────────────────────────────────
 
@@ -24,8 +24,6 @@ export interface AgentConfig {
   stepDelayMs: number;
   /** Time (ms) to wait for the DOM to settle after an action. Default 1500. */
   settleTimeMs: number;
-  /** Automatically fill detected forms before looking for a submit action. */
-  autoFillForms: boolean;
 }
 
 export const DEFAULT_AGENT_CONFIG: AgentConfig = {
@@ -34,7 +32,6 @@ export const DEFAULT_AGENT_CONFIG: AgentConfig = {
   minConfidence: 0.1,
   stepDelayMs: 2000,
   settleTimeMs: 1500,
-  autoFillForms: true,
 };
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -87,7 +84,6 @@ export interface AgentResumeSnapshot {
   lastSelector: string;
   stuckCounter: number;
   visitedActions: Record<string, string[]>;
-  filledFormSelectors: string[];
   turns: AgentTurn[];
 }
 
@@ -100,14 +96,6 @@ export interface AgentCallbacks {
   predict: () => Promise<PredictionResult>;
   /** Execute a prediction by clicking the target element. Returns true if element was found and clicked. */
   execute: (prediction: RankedPrediction) => Promise<boolean>;
-  /** Detect whether there is an active form to fill. */
-  detectForm: () => {
-    detected: boolean;
-    fields: FormFieldInfo[];
-    form: HTMLFormElement | null;
-  };
-  /** Auto-fill the detected form. Returns true on success. */
-  fillForm: (fields: FormFieldInfo[]) => Promise<boolean>;
   /** Called whenever agent status or step count changes. */
   onStatusChange: (
     status: AgentStatus,
@@ -145,9 +133,6 @@ export class AgentExecutor {
 
   // AI query budget
   private aiQueryCount = 0;
-
-  // Track filled forms so we don't re-fill the same form in a loop
-  private filledFormSelectors = new Set<string>();
 
   // Track visited actions per-URL to avoid infinite loops.
   // Scoped per URL so the same action on a different page state (SPA) isn't blocked.
@@ -300,7 +285,6 @@ export class AgentExecutor {
           Array.from(set),
         ]),
       ),
-      filledFormSelectors: Array.from(this.filledFormSelectors),
       turns: [...this.turns],
     };
   }
@@ -331,7 +315,6 @@ export class AgentExecutor {
         new Set(keys),
       ]),
     );
-    this.filledFormSelectors = new Set(snapshot.filledFormSelectors);
     this.consecutiveNoOps = 0;
     this.consecutiveScrolls = 0;
 
@@ -366,35 +349,13 @@ export class AgentExecutor {
       await this.delay(this.config.stepDelayMs);
       if (this.status !== "running") break;
 
-      // 3. Form auto-fill (before predicting next click)
-      if (this.config.autoFillForms) {
-        const formInfo = this.callbacks.detectForm();
-        if (formInfo.detected && formInfo.fields.length > 0) {
-          const formId = formInfo.form
-            ? this.formIdentifier(formInfo.form)
-            : "__anonymous";
-          if (!this.filledFormSelectors.has(formId)) {
-            const filled = await this.callbacks.fillForm(formInfo.fields);
-            this.filledFormSelectors.add(formId);
-            if (filled) {
-              this.recordStep("Auto-filled form", formId, true);
-              // Give frameworks time to run validation
-              await this.delay(800);
-              if (this.status !== "running") break;
-              // Re-observe after fill — the predictions will now focus on submit
-              continue;
-            }
-          }
-        }
-      }
-
-      // 4. Check AI query budget
+      // 3. Check AI query budget
       if (this.aiQueryCount >= this.config.maxAIQueries) {
         this.finish(`AI query limit reached (${this.config.maxAIQueries})`);
         break;
       }
 
-      // 5. Predict next action (AI-powered)
+      // 4. Predict next action (AI-powered)
       this.aiQueryCount++;
       let result: PredictionResult;
       try {
@@ -635,7 +596,6 @@ export class AgentExecutor {
     this.stuckCounter = 0;
     this.lastSelector = "";
     this.aiQueryCount = 0;
-    this.filledFormSelectors.clear();
     this.visitedActions.clear();
     this.consecutiveScrolls = 0;
     this.consecutiveNoOps = 0;
@@ -728,11 +688,4 @@ export class AgentExecutor {
     });
   }
 
-  /** Generates a stable identifier for a form element so we can track fills. */
-  private formIdentifier(form: HTMLFormElement): string {
-    if (form.id) return `#${form.id}`;
-    if (form.name) return `[name="${form.name}"]`;
-    if (form.action) return form.action;
-    return `form[${Array.from(document.querySelectorAll("form")).indexOf(form)}]`;
-  }
 }

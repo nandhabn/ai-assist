@@ -16,8 +16,6 @@ import {
   CompactContext,
   AIPrediction,
   AgentToolCall,
-  FormFieldInfo,
-  AIFormData,
 } from "../types/ai";
 
 // ─── Config ───────────────────────────────────────────────────────────────────
@@ -89,15 +87,6 @@ export class QueuedAIProvider implements AIProvider {
   async predictNextAction(context: CompactContext): Promise<AIPrediction> {
     return this.enqueue("predictNextAction", (p) =>
       p.predictNextAction(context),
-    );
-  }
-
-  async generateFormData(
-    fields: FormFieldInfo[],
-    pageContext?: string,
-  ): Promise<AIFormData> {
-    return this.enqueue("generateFormData", (p) =>
-      p.generateFormData(fields, pageContext),
     );
   }
 

@@ -25,12 +25,6 @@ import { state } from "../state";
 import { getAIProvider } from "../ai/providers";
 import { predictForAgent, consumeLastPredictionContext } from "./prediction";
 import { executeForAgent } from "./execution";
-import {
-  detectFormForAgent,
-  fillFormForAgent,
-  checkAndShowFormBanner,
-} from "../form/formDetect";
-import { generateAutofillData } from "../form/autofill";
 import { loadAndSyncSkills } from "./tools";
 
 // ─── Snapshot persistence (cross-navigation resume) ─────────────────────────
@@ -109,7 +103,6 @@ export function initializeAgent(): void {
     () => {
       /* no prediction refresh — agent drives its own loop */
     },
-    generateAutofillData,
     {
       onStart: handleAgentStart,
       onStop: handleAgentStop,
@@ -118,9 +111,6 @@ export function initializeAgent(): void {
     },
   );
   toggleAgentPanelVisibility(true);
-  checkAndShowFormBanner();
-  setTimeout(checkAndShowFormBanner, 1500);
-  setTimeout(checkAndShowFormBanner, 4000);
 
   // Seed the tool registry with skill tools already in storage
   loadAndSyncSkills().catch(() => {/* no-op if storage unavailable */});
@@ -158,8 +148,6 @@ export function getOrCreateAgentExecutor(): AgentExecutor {
       {
         predict: predictForAgent,
         execute: executeForAgent,
-        detectForm: detectFormForAgent,
-        fillForm: fillFormForAgent,
         getLastActionFailure: () => {
           const v = state.lastActionFailure;
           state.lastActionFailure = null;
@@ -231,10 +219,6 @@ export function getOrCreateAgentExecutor(): AgentExecutor {
           // Persist snapshot so the session survives a full-page navigation
           saveAgentResumeSnapshot();
         },
-      },
-      {
-        // Tool-calling handles form input via explicit "type" calls — no auto-fill needed.
-        autoFillForms: false,
       },
     );
   }

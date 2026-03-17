@@ -41,6 +41,7 @@ import { DoneTool } from "./done";
 import { MessageTool } from "./message";
 import { DelayTool } from "./delay";
 import { FillFormTool } from "./fill-form";
+import { BulkTool } from "./bulk";
 
 toolRegistry.register("navigate", new NavigateTool());
 toolRegistry.register("click", new ClickTool());
@@ -50,3 +51,4 @@ toolRegistry.register("done", new DoneTool());
 toolRegistry.register("message", new MessageTool());
 toolRegistry.register("delay", new DelayTool());
 toolRegistry.register("fill_form", new FillFormTool());
+toolRegistry.register("bulk", new BulkTool());

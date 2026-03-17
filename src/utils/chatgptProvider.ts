@@ -4,15 +4,10 @@ import {
   AIProvider,
   CompactContext,
   AIPrediction,
-  FormFieldInfo,
-  AIFormData,
 } from "../types/ai";
 import {
   PREDICTION_SYSTEM_PROMPT,
-  FORM_DATA_SYSTEM_PROMPT,
   buildPredictionPrompt,
-  buildFormDataPrompt,
-  formatFieldDescriptions,
 } from "@/config/prompts";
 
 function aiLog(msg: string) {
@@ -186,78 +181,4 @@ export class ChatGPTProvider implements AIProvider {
     return content.substring(jsonStart, jsonEnd + 1);
   }
 
-  async generateFormData(
-    fields: FormFieldInfo[],
-    pageContext?: string,
-  ): Promise<AIFormData> {
-    aiLog(
-      `[ChatGPT] generateFormData START | Model: ${this.model} | Fields: ${fields.length} | Context: ${pageContext || "none"}`,
-    );
-    const fieldDescriptions = formatFieldDescriptions(fields);
-    const prompt = buildFormDataPrompt(fieldDescriptions, pageContext);
-
-    try {
-      const response = await fetch(OPENAI_API_ENDPOINT, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${this.apiKey}`,
-        },
-        body: JSON.stringify({
-          model: this.model,
-          messages: [
-            {
-              role: "system",
-              content: FORM_DATA_SYSTEM_PROMPT,
-            },
-            { role: "user", content: prompt },
-          ],
-          temperature: 0.7,
-        }),
-      });
-
-      if (!response.ok) {
-        const errorBody = await response.text();
-        if (response.status !== 429) {
-          console.error(
-            "OpenAI form data request failed:",
-            response.status,
-            errorBody,
-          );
-        }
-        throw new Error(`OpenAI API error: ${response.status}`);
-      }
-
-      const data: OpenAIResponse = await response.json();
-      const messageContent = data.choices[0]?.message?.content;
-
-      if (!messageContent) {
-        throw new Error(
-          "Invalid response structure from OpenAI API: No message content.",
-        );
-      }
-
-      const jsonString = this.extractJson(messageContent);
-      const parsed = JSON.parse(jsonString) as AIFormData;
-
-      if (!parsed.fieldValues || typeof parsed.fieldValues !== "object") {
-        throw new Error("Invalid form data structure from OpenAI API.");
-      }
-
-      aiLog(
-        `[ChatGPT] generateFormData SUCCESS | Keys: ${Object.keys(parsed.fieldValues).join(", ")}`,
-      );
-      return parsed;
-    } catch (error) {
-      aiLog(`[ChatGPT] generateFormData ERROR | ${error}`);
-      console.error("Error generating form data with ChatGPT:", error);
-      if (
-        error instanceof Error &&
-        error.message.startsWith("OpenAI API error")
-      ) {
-        throw error;
-      }
-      throw new Error("Failed to generate form data from OpenAI.");
-    }
-  }
 }

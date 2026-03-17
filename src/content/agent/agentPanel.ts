@@ -15,20 +15,6 @@ type AgentStartCallback = () => void;
 type AgentStopCallback = () => void;
 type AgentPauseCallback = () => void;
 type AgentResumeCallback = () => void;
-type AutofillDataGenerator = (
-  fields: {
-    name: string;
-    id: string;
-    type: string;
-    placeholder: string;
-    labelText: string;
-    ariaLabel: string;
-    options?: string[];
-  }[],
-  retryContext?: {
-    fieldErrors: { fieldId: string; fieldName: string; errorText: string }[];
-  },
-) => Promise<Record<string, string>>;
 
 // Re-exporting for content.ts to use
 export type { PredictionResult, RankedPrediction };
@@ -52,26 +38,10 @@ const panelCss = `
     transition: border-color 0.3s ease, box-shadow 0.3s ease;
   }
   .panel-container.auto-executed { border-color: #28a745; }
-  
-  @keyframes confidence-boost-animation {
-    0% { box-shadow: 0 6px 16px rgba(0,0,0,0.12); border-color: #e0e0e0; }
-    50% { box-shadow: 0 6px 24px rgba(40, 167, 69, 0.4); border-color: #28a745; }
-    100% { box-shadow: 0 6px 16px rgba(0,0,0,0.12); border-color: #e0e0e0; }
-  }
-  .panel-container.confidence-boost {
-    animation: confidence-boost-animation 0.5s ease-in-out;
-  }
 
   .header { display: flex; justify-content: space-between; align-items: center; padding: 10px 12px; border-bottom: 1px solid #f0f0f0; }
   .header-title { font-weight: 600; color: #333; }
   .auto-badge { background-color: #e4f8e5; color: #28a745; padding: 3px 6px; border-radius: 4px; font-size: 10px; font-weight: 600; opacity: 0; transition: opacity 0.3s ease; }
-  .confidence-section { padding: 8px 12px; }
-  .progress-bar-container { width: 100%; background-color: #e9ecef; border-radius: 5px; height: 10px; margin-top: 4px; overflow: hidden; }
-  .progress-bar { height: 100%; width: 0; border-radius: 5px; transition: width 0.2s ease, background-color 0.2s ease; }
-  .progress-bar.high { background-color: #28a745; }
-  .progress-bar.medium { background-color: #ffc107; }
-  .progress-bar.low { background-color: #dc3545; }
-  .confidence-text { display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: #666; }
 
   .ai-indicator {
     display: none;
@@ -115,98 +85,6 @@ const panelCss = `
   .why-details { max-height: 0; overflow: hidden; transition: max-height 0.3s ease-out; background: #f8f9fa; border-radius: 4px; margin: 4px 8px 0; padding: 0 8px; }
   .why-details.visible { max-height: 150px; padding: 6px 8px; }
   .why-details pre { font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace; font-size: 11px; margin: 0; white-space: pre-wrap; color: #333; }
-
-  #autofill-assist {
-    display: none; /* Hidden by default */
-    padding: 8px 12px;
-    margin: 4px 8px;
-    background-color: #eef6ff;
-    border: 1px solid #d0e7ff;
-    border-radius: 6px;
-    justify-content: space-between;
-    align-items: center;
-  }
-  #autofill-assist.visible { display: flex; }
-  .autofill-text { font-size: 12px; color: #1d4ed8; font-weight: 500; }
-  .autofill-btn {
-    font-size: 12px;
-    font-weight: 600;
-    color: #fff;
-    background-color: #2563eb;
-    border: none;
-    cursor: pointer;
-    padding: 4px 10px;
-    border-radius: 5px;
-  }
-  .autofill-btn:hover { background-color: #1d4ed8; }
-  .autofill-error-badge {
-    display: none;
-    font-size: 11px;
-    color: #b91c1c;
-    background: #fee2e2;
-    border: 1px solid #fca5a5;
-    border-radius: 4px;
-    padding: 2px 7px;
-    margin-top: 4px;
-    width: 100%;
-    box-sizing: border-box;
-  }
-  .autofill-error-badge.visible { display: block; }
-  #form-banner {
-    display: none;
-    flex-direction: column;
-    padding: 8px 12px;
-    margin: 0 8px 4px;
-    background-color: #f0fdf4;
-    border: 1px solid #bbf7d0;
-    border-radius: 6px;
-    gap: 6px;
-  }
-  #form-banner.visible { display: flex; }
-  .form-banner-header { display: flex; align-items: center; gap: 6px; }
-  .form-banner-icon { font-size: 13px; }
-  .form-banner-text { font-size: 12px; color: #166534; font-weight: 600; flex: 1; }
-  #form-list {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    max-height: 128px;
-    overflow-y: auto;
-  }
-  .form-item {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 6px;
-    padding: 4px 6px;
-    background: #fff;
-    border: 1px solid #d1fae5;
-    border-radius: 5px;
-  }
-  .form-item-label {
-    font-size: 11px;
-    color: #166534;
-    flex: 1;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .form-item-focus-btn {
-    font-size: 11px;
-    font-weight: 600;
-    color: #fff;
-    background-color: #16a34a;
-    border: none;
-    cursor: pointer;
-    padding: 3px 8px;
-    border-radius: 4px;
-    white-space: nowrap;
-    flex-shrink: 0;
-  }
-  .form-item-focus-btn:hover { background-color: #15803d; }
-
-  .focus-btn { font-size: 12px; font-weight: 500; color: #059669; background: none; border: none; cursor: pointer; padding: 4px; margin-left: 2px; }
-  .focus-btn:hover { color: #047857; }
 
   /* ---- Mission Prompt ---- */
   #mission-section {
@@ -556,8 +434,6 @@ const panelCss = `
   }
   .panel-container.dark .header { border-bottom-color: #2d2d42; }
   .panel-container.dark .header-title { color: #e5e7eb; }
-  .panel-container.dark .confidence-text { color: #9ca3af; }
-  .panel-container.dark .progress-bar-container { background-color: #374151; }
   .panel-container.dark .prediction-row:hover { background-color: #2d2d42; }
   .panel-container.dark .prediction-label { color: #e5e7eb; }
   .panel-container.dark .score-badge { background: #374151; color: #e5e7eb; }
@@ -566,14 +442,6 @@ const panelCss = `
   .panel-container.dark .why-toggle { color: #9ca3af; }
   .panel-container.dark .why-details { background: #2d2d42; }
   .panel-container.dark .why-details pre { color: #d1d5db; }
-  .panel-container.dark #autofill-assist { background: #1e3155; border-color: #1e40af; }
-  .panel-container.dark .autofill-text { color: #93c5fd; }
-  .panel-container.dark .autofill-btn { background-color: #2563eb; }
-  .panel-container.dark .autofill-btn:hover { background-color: #1d4ed8; }
-  .panel-container.dark #form-banner { background: #14532d20; border-color: #166534; }
-  .panel-container.dark .form-banner-text { color: #86efac; }
-  .panel-container.dark .form-item { background: #1e3a2f; border-color: #166534; }
-  .panel-container.dark .form-item-label { color: #86efac; }
   .panel-container.dark #mission-section { border-top-color: #2d2d42; }
   .panel-container.dark #mission-toggle-row:hover { background: #2d1f40; }
   .panel-container.dark .mission-toggle-label { color: #a78bfa; }
@@ -605,7 +473,6 @@ const panelCss = `
     color: #c4b5fd;
   }
   .panel-container.dark .agent-plan-header { color: #a78bfa; }
-  .panel-container.dark .autofill-error-badge { background: #450a0a; border-color: #b91c1c; color: #fca5a5; }
 
   /* ---- Steering Input ---- */
   #steering-section {
@@ -707,45 +574,16 @@ const PANEL_ID = "flow-agent-panel-host";
 let shadowRoot: ShadowRoot | null = null;
 let onExecute: ExecuteCallback | null = null;
 let onRecalculate: RecalculateCallback | null = null;
-let onGenerateAutofillData: AutofillDataGenerator | null = null;
 let onAgentStart: AgentStartCallback | null = null;
 let onAgentStop: AgentStopCallback | null = null;
 let onAgentPause: AgentPauseCallback | null = null;
 let onAgentResume: AgentResumeCallback | null = null;
-// The form element we want to autofill, captured at the time the user opened the
-// autofill assist panel (or clicked "Fill Form").  Stored here so an async AI call
-// can still target the right form even if focus moves elsewhere before it returns.
-let autofillTargetForm: HTMLFormElement | null = null;
-
-/** Called by content.ts whenever the active autofill form changes. */
-export function setAutofillTargetForm(form: HTMLFormElement | null) {
-  autofillTargetForm = form;
-}
 
 const originalStyles = new WeakMap<
   HTMLElement,
   { outline: string; outlineOffset: string }
 >();
 let lastTopSelector: string | null = null;
-let currentFormFields:
-  | {
-      name: string;
-      id: string;
-      type: string;
-      placeholder: string;
-      labelText: string;
-      ariaLabel: string;
-      options?: string[];
-    }[]
-  | null = null;
-let lastConfidence = 0.0;
-
-// No hardcoded data generators — autofill data is now provided
-// dynamically via the AutofillDataGenerator callback (AI-powered).
-
-function getConfidenceClass(c: number): "high" | "medium" | "low" {
-  return c >= 0.6 ? "high" : c >= 0.3 ? "medium" : "low";
-}
 
 function getHostElement(): HTMLElement {
   let host = document.getElementById(PANEL_ID);
@@ -761,7 +599,6 @@ function getHostElement(): HTMLElement {
 export function initAgentPanel(
   executeCallback: ExecuteCallback,
   recalculateCallback: RecalculateCallback,
-  autofillDataGenerator?: AutofillDataGenerator,
   agentCallbacks?: {
     onStart: AgentStartCallback;
     onStop: AgentStopCallback;
@@ -773,7 +610,6 @@ export function initAgentPanel(
 
   onExecute = executeCallback;
   onRecalculate = recalculateCallback;
-  onGenerateAutofillData = autofillDataGenerator || null;
   onAgentStart = agentCallbacks?.onStart || null;
   onAgentStop = agentCallbacks?.onStop || null;
   onAgentPause = agentCallbacks?.onPause || null;
@@ -791,35 +627,12 @@ export function initAgentPanel(
       <div class="header">
         <span class="header-title">Flow Agent</span>
         <span class="auto-badge" id="auto-badge">Auto Executed</span>
+        <span id="ai-thinking-indicator" class="ai-indicator"></span>
         <button id="theme-btn" class="theme-btn" title="Toggle dark mode">🌙</button>
         <button id="collapse-btn" class="collapse-btn" title="Collapse panel">▲</button>
       </div>
       <div class="panel-body">
-      <div class="confidence-section">
-        <div class="confidence-text">
-          <span>Confidence</span>
-          <span>
-            <span id="ai-thinking-indicator" class="ai-indicator"></span>
-            <span id="confidence-percent">0%</span>
-          </span>
-        </div>
-        <div class="progress-bar-container">
-          <div id="confidence-bar" class="progress-bar"></div>
-        </div>
-      </div>
       <div id="prediction-list"></div>
-      <div id="form-banner">
-        <div class="form-banner-header">
-          <span class="form-banner-icon">📋</span>
-          <span id="form-banner-text" class="form-banner-text">Forms detected on this page</span>
-        </div>
-        <div id="form-list"></div>
-      </div>
-      <div id="autofill-assist">
-        <span class="autofill-text">Autofill Available</span>
-        <button id="autofill-btn" class="autofill-btn">Fill Form</button>
-        <div id="autofill-error-badge" class="autofill-error-badge"></div>
-      </div>
       <div id="mission-section">
         <div id="mission-toggle-row">
           <span class="mission-toggle-icon">🎯</span>
@@ -902,6 +715,12 @@ export function initAgentPanel(
     chrome.storage.local.set({ [COLLAPSE_KEY]: isCollapsed });
     applyCollapsed(isCollapsed);
   });
+
+  // Prevent keyboard events from leaking out of the agent panel into the page.
+  // This stops page shortcuts from firing while the user types in any panel input.
+  container.addEventListener("keydown", (e) => e.stopPropagation());
+  container.addEventListener("keyup", (e) => e.stopPropagation());
+  container.addEventListener("keypress", (e) => e.stopPropagation());
 
   // ---- Theme toggle (synced across all tabs via chrome.storage.local) ----
   const THEME_KEY = "flowAgent_darkTheme";
@@ -1118,165 +937,10 @@ export function initAgentPanel(
   steeringClearBtn.addEventListener("click", () => clearQueuedHint());
   // ---- end Steering Input wiring ----
 
-  shadowRoot
-    .getElementById("autofill-btn")
-    ?.addEventListener("click", async () => {
-      const btn = shadowRoot!.getElementById(
-        "autofill-btn",
-      ) as HTMLButtonElement;
-      const textEl = shadowRoot!.querySelector(".autofill-text") as HTMLElement;
-
-      if (!currentFormFields || currentFormFields.length === 0) {
-        console.warn("[Flow Agent] No form fields available for autofill");
-        return;
-      }
-
-      if (!onGenerateAutofillData) {
-        console.warn("[Flow Agent] No autofill data generator configured");
-        return;
-      }
-
-      // Show loading state
-      btn.disabled = true;
-      btn.textContent = "Generating...";
-      if (textEl) textEl.textContent = "AI is generating data...";
-
-      // Capture the target form NOW — before the async AI call —
-      // so that any focus change while AI is thinking doesn't lose it.
-      const pinnedForm = autofillTargetForm;
-      const errorBadge = shadowRoot!.getElementById(
-        "autofill-error-badge",
-      ) as HTMLElement | null;
-      if (errorBadge) {
-        errorBadge.textContent = "";
-        errorBadge.classList.remove("visible");
-      }
-
-      const MAX_RETRIES = 2;
-      let retryErrors:
-        | { fieldId: string; fieldName: string; errorText: string }[]
-        | undefined;
-
-      const runFill = async (): Promise<boolean> => {
-        const dataMap = await onGenerateAutofillData(
-          currentFormFields!,
-          retryErrors ? { fieldErrors: retryErrors } : undefined,
-        );
-        console.log("[Flow Agent] AI-generated data map:", dataMap);
-        if (pinnedForm && (window as any).__fillFormElement) {
-          await (window as any).__fillFormElement(pinnedForm, dataMap, {
-            debug: true,
-            delay: 50,
-          });
-        } else {
-          await (window as any).__fillActiveForm(dataMap, {
-            debug: true,
-            delay: 50,
-          });
-        }
-        // Wait briefly for frameworks (React / Angular) to run validation
-        await new Promise((r) => setTimeout(r, 700));
-        // Detect validation errors on the form
-        const detected: {
-          fieldId: string;
-          fieldName: string;
-          errorText: string;
-        }[] =
-          pinnedForm && (window as any).__detectFormErrors
-            ? (window as any).__detectFormErrors(pinnedForm)
-            : [];
-        return detected.length === 0 ? true : ((retryErrors = detected), false);
-      };
-
-      try {
-        let success = await runFill();
-        for (let attempt = 1; attempt <= MAX_RETRIES && !success; attempt++) {
-          console.log(
-            `[Flow Agent] Form errors detected — retry ${attempt}/${MAX_RETRIES}`,
-          );
-          if (textEl)
-            textEl.textContent = `Errors found — retry ${attempt}/${MAX_RETRIES}…`;
-          success = await runFill();
-        }
-        if (!success && retryErrors) {
-          // Still failing after all retries — surface errors in the badge
-          const summary = retryErrors
-            .map((e) => `${e.fieldName || e.fieldId}: ${e.errorText}`)
-            .join(" · ");
-          if (errorBadge) {
-            errorBadge.textContent = `⚠ ${summary}`;
-            errorBadge.classList.add("visible");
-          }
-          console.warn(
-            "[Flow Agent] Autofill still has errors after retries:",
-            retryErrors,
-          );
-        }
-      } catch (error) {
-        console.error("[Flow Agent] Autofill data generation failed:", error);
-        if (textEl) textEl.textContent = "Generation failed";
-        setTimeout(() => {
-          if (textEl) textEl.textContent = "Autofill Available";
-        }, 2000);
-      } finally {
-        btn.disabled = false;
-        btn.textContent = "Fill Form";
-        if (textEl) textEl.textContent = "Autofill Available";
-      }
-    });
 }
 
-export function renderAgentPanel(
-  result: PredictionResult,
-  autofillAvailable: boolean,
-  formFields?: {
-    name: string;
-    id: string;
-    type: string;
-    placeholder: string;
-    labelText: string;
-    ariaLabel: string;
-    options?: string[];
-  }[],
-) {
+export function renderAgentPanel(result: PredictionResult) {
   if (!shadowRoot) return;
-
-  currentFormFields = formFields || null;
-
-  // Confidence Boost Animation
-  const newConfidence = result.confidence;
-  if (newConfidence > lastConfidence + 0.15) {
-    const container = shadowRoot.querySelector(".panel-container");
-    if (container) {
-      container.classList.add("confidence-boost");
-      setTimeout(() => container.classList.remove("confidence-boost"), 500);
-    }
-  }
-  lastConfidence = newConfidence;
-
-  // Update Confidence Bar
-  const bar = shadowRoot.getElementById("confidence-bar") as HTMLElement;
-  const percentText = shadowRoot.getElementById(
-    "confidence-percent",
-  ) as HTMLElement;
-
-  if (newConfidence < 0.05) {
-    percentText.textContent = "Exploring…";
-    bar.style.width = "4%";
-    bar.style.opacity = "0.6";
-  } else {
-    const confidencePercent = (newConfidence * 100).toFixed(0);
-    percentText.textContent = `${confidencePercent}%`;
-    bar.style.width = `${confidencePercent}%`;
-    bar.style.opacity = "1";
-  }
-
-  bar.className = `progress-bar ${getConfidenceClass(newConfidence)}`;
-
-  const autofillAssist = shadowRoot.getElementById(
-    "autofill-assist",
-  ) as HTMLElement;
-  autofillAssist.classList.toggle("visible", autofillAvailable);
 
   const list = shadowRoot.getElementById("prediction-list") as HTMLElement;
   while (list.firstChild) {
@@ -1383,50 +1047,6 @@ export function renderAgentPanel(
   });
 }
 
-export function showFormDetectedBanner(
-  forms: { label: string; onFocus: () => void }[],
-) {
-  if (!shadowRoot) return;
-  const banner = shadowRoot.getElementById("form-banner");
-  const formList = shadowRoot.getElementById("form-list");
-  const bannerText = shadowRoot.getElementById("form-banner-text");
-  if (!banner || !formList) return;
-
-  // Update header text based on count
-  if (bannerText) {
-    bannerText.textContent =
-      forms.length === 1
-        ? "Form detected on this page"
-        : `${forms.length} forms detected on this page`;
-  }
-
-  // Rebuild the list
-  formList.innerHTML = "";
-  forms.forEach(({ label, onFocus }) => {
-    const item = document.createElement("div");
-    item.className = "form-item";
-
-    const labelEl = document.createElement("span");
-    labelEl.className = "form-item-label";
-    labelEl.textContent = label;
-    labelEl.title = label;
-
-    const btn = document.createElement("button");
-    btn.className = "form-item-focus-btn";
-    btn.textContent = "Go to Form";
-    btn.addEventListener("click", () => {
-      onFocus();
-      banner.classList.remove("visible");
-    });
-
-    item.appendChild(labelEl);
-    item.appendChild(btn);
-    formList.appendChild(item);
-  });
-
-  banner.classList.add("visible");
-}
-
 export function setMissionPrompt(text: string, _onClear?: () => void) {
   if (!shadowRoot) return;
   const missionActiveRow = shadowRoot.getElementById("mission-active-row");
@@ -1443,12 +1063,6 @@ export function setMissionPrompt(text: string, _onClear?: () => void) {
     missionActiveRow.classList.remove("visible");
     missionActiveBadge.classList.remove("visible");
   }
-}
-
-export function hideFormDetectedBanner() {
-  if (!shadowRoot) return;
-  const banner = shadowRoot.getElementById("form-banner");
-  banner?.classList.remove("visible");
 }
 
 /**
