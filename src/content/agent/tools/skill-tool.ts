@@ -42,6 +42,21 @@ export class SkillToolHandler implements ToolHandler {
         return { success: true };
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
+        const isCSP =
+          msg.includes("Content Security Policy") ||
+          msg.includes("unsafe-eval") ||
+          msg.includes("EvalError");
+        if (isCSP) {
+          console.warn(
+            `[SkillTool "${this.name}"] blocked by CSP — code-mode skill tools cannot run on this page.`,
+          );
+          return {
+            success: false,
+            failureReason:
+              `Skill tool '${this.name}' is blocked by Content Security Policy on this page. ` +
+              `DO NOT retry this tool. Use the built-in type() and click() tools to accomplish the same goal manually.`,
+          };
+        }
         console.warn(`[SkillTool "${this.name}"] runtime error:`, err);
         return { success: false, failureReason: `Runtime error: ${msg}` };
       }

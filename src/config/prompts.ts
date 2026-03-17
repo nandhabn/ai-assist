@@ -399,11 +399,23 @@ export function buildAgentToolPrompt(context: CompactContext): string {
   if (mission && filteredElements.length > 0) {
     const keywords = extractMissionKeywords(mission);
     if (keywords.length > 0) {
-      const relevant = filteredElements.filter((e) => {
-        const lower = e.label.toLowerCase();
-        return keywords.some((kw) => lower.includes(kw));
+      // Skip keywords that are too generic (match too many elements).
+      // e.g. "search" matches 13 items on Google.com — that's noise, not signal.
+      const MAX_MATCHES_PER_KEYWORD = 5;
+      const selectiveKeywords = keywords.filter((kw) => {
+        const matchCount = filteredElements.filter((e) =>
+          e.label.toLowerCase().includes(kw),
+        ).length;
+        return matchCount > 0 && matchCount <= MAX_MATCHES_PER_KEYWORD;
       });
-      if (relevant.length > 0 && relevant.length <= 15) {
+      const relevant =
+        selectiveKeywords.length > 0
+          ? filteredElements.filter((e) => {
+              const lower = e.label.toLowerCase();
+              return selectiveKeywords.some((kw) => lower.includes(kw));
+            })
+          : [];
+      if (relevant.length > 0 && relevant.length <= 6) {
         relevantSection = [
           "▶ BEST MATCHES for this mission (prefer these):",
           ...relevant.map((e) => {
@@ -451,24 +463,20 @@ export function buildAgentToolPrompt(context: CompactContext): string {
     .filter(Boolean)
     .join("\n");
 
-  // ── Active Skills (filter to mission-relevant only) ────────────────────────
-  const missionKeywords = mission ? extractMissionKeywords(mission) : [];
-  const relevantSkills =
-    skills && skills.length > 0 && missionKeywords.length > 0
-      ? skills.filter((s) => {
-          const text = `${s.name} ${s.description}`.toLowerCase();
-          return missionKeywords.some((kw) => text.includes(kw));
-        })
-      : (skills ?? []);
+  // ── Active Skills ─────────────────────────────────────────────────────────
+  // Always include all enabled skills — the AI decides relevance at runtime.
+  // Filtering by mission keywords was too aggressive: it hid skills the AI
+  // might need as intermediate steps (e.g. Google Search for a "buy" mission).
+  const allSkills = skills ?? [];
 
   const skillToolNames: string[] = [];
   const skillsSection =
-    relevantSkills.length > 0
+    allSkills.length > 0
       ? [
           "=== ACTIVE SKILLS ===",
-          "You have the following user-defined skills. ONLY use them when the mission clearly requires their capability.",
+          "You have the following user-defined skills. Use them when the mission or current step benefits from their capability.",
           "",
-          ...relevantSkills.map((s) => {
+          ...allSkills.map((s) => {
             const toolBlock =
               s.tools && s.tools.length > 0
                 ? s.tools
@@ -493,19 +501,36 @@ export function buildAgentToolPrompt(context: CompactContext): string {
         ].join("\n")
       : "";
 
-  // Build skillToolLines here so each entry carries the tool's actual description + paramHint
+  // Build skillToolLines + per-tool param format docs
   // (skillToolNames is already populated while building skillsSection above)
-  const skillToolLines = skillToolNames.map((n) => {
-    // Find the tool across all relevant skills to get description + paramHint
-    for (const s of relevantSkills) {
-      const t = s.tools?.find((tool) => tool.name === n);
-      if (t) {
-        const hint = t.paramHint ? ` Params: ${t.paramHint}.` : "";
-        return `  ${n.padEnd(22)}— ${sanitizeSkillText(t.description)}${hint}`;
+  const skillToolEntries: { line: string; paramFormat: string | null }[] =
+    skillToolNames.map((n) => {
+      for (const s of allSkills) {
+        const t = s.tools?.find((tool) => tool.name === n);
+        if (t) {
+          const hint = t.paramHint ? ` Params: ${t.paramHint}.` : "";
+          const paramFormat = t.paramHint
+            ? `  ${n.padEnd(10)} → { ${t.paramHint
+                .split(",")
+                .map((p) => {
+                  const key = p.replace(/params\./g, "").split(" ")[0].trim();
+                  return key ? `"${key}": "<value>"` : null;
+                })
+                .filter(Boolean)
+                .join(", ")} }`
+            : null;
+          return {
+            line: `  ${n.padEnd(22)}— ${sanitizeSkillText(t.description)}${hint}`,
+            paramFormat,
+          };
+        }
       }
-    }
-    return `  ${n.padEnd(22)}— Custom skill tool.`;
-  });
+      return { line: `  ${n.padEnd(22)}— Custom skill tool.`, paramFormat: null };
+    });
+  const skillToolLines = skillToolEntries.map((e) => e.line);
+  const skillParamFormatLines = skillToolEntries
+    .map((e) => e.paramFormat)
+    .filter(Boolean) as string[];
 
   const steeringSection = steeringHint
     ? [
@@ -571,6 +596,7 @@ export function buildAgentToolPrompt(context: CompactContext): string {
     "  8. NEVER repeat an action that already appears in SESSION HISTORY as successfully executed on the current page.",
     "  9. Consult RESULT OF LAST ACTION (when present) to understand exactly what changed on the page before deciding the next step.",
     "  10. When BEST MATCHES are listed, prefer those elements unless they clearly don't fit the current step.",
+    "  11. If a skill tool FAILED (especially with 'Content Security Policy' or 'Runtime error'), DO NOT retry it. Use built-in type(), click(), navigate() to accomplish the same goal manually.",
     "",
     "=== OUTPUT FORMAT ===",
     "Respond with ONLY a valid JSON object. No markdown fences, no extra keys, no commentary.",
@@ -582,6 +608,7 @@ export function buildAgentToolPrompt(context: CompactContext): string {
     `  scroll     → { "direction": "up" | "down" }`,
     `  message    → { "message": "<short status>" }`,
     `  done       → { "reason": "<why complete or unrecoverable>" }`,
+    ...skillParamFormatLines,
     "",
     "{",
     `  "tool": "navigate | click | type | fill_form | scroll | message | done${skillToolNames.length > 0 ? ` | ${skillToolNames.join(" | ")}` : ""}",`,

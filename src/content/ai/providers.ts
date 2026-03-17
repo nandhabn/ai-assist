@@ -32,6 +32,9 @@ type ProviderEntry = {
 
 export async function getAIProvider(): Promise<QueuedAIProvider | null> {
   const config = await getAIConfig();
+  console.log(
+    `[providers] Initializing — preferredProvider=${config.preferredProvider}, preferredModel=${config.preferredModel}`,
+  );
 
   const allProviders: ProviderEntry[] = [
     {

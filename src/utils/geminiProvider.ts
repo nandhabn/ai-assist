@@ -130,6 +130,7 @@ export class GeminiProvider implements AIProvider {
     }
     this.apiKey = apiKey;
     this.model = model;
+    console.log(`[GeminiProvider] Initialized with model: ${this.model}`);
   }
 
   private get endpoint() {
@@ -381,17 +382,9 @@ export class GeminiProvider implements AIProvider {
               type: "OBJECT",
               properties: {
                 tool: { type: "STRING" },
-                params: {
-                  type: "OBJECT",
-                  properties: {
-                    url: { type: "STRING" },
-                    label: { type: "STRING" },
-                    text: { type: "STRING" },
-                    direction: { type: "STRING" },
-                    message: { type: "STRING" },
-                    reason: { type: "STRING" },
-                  },
-                },
+                // params is left unconstrained so skill tools can pass
+                // custom keys (e.g. "query") beyond the built-in set.
+                params: { type: "OBJECT" },
                 reasoning: { type: "STRING" },
                 confidenceEstimate: { type: "NUMBER" },
               },
