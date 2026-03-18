@@ -47,7 +47,10 @@ export default function App() {
     });
 
     // Listen for recording/event updates
-    const handleStorageChange = (changes) => {
+    const handleStorageChange = (
+      changes: { [key: string]: chrome.storage.StorageChange },
+      areaName: chrome.storage.AreaName,
+    ) => {
       if (changes.flowRecorder_events) {
         const events = changes.flowRecorder_events.newValue || [];
         setEventCount(events.length);
@@ -64,7 +67,7 @@ export default function App() {
     };
   }, []);
 
-  const handleViewChange = (newView) => {
+  const handleViewChange = (newView: React.SetStateAction<string>) => {
     setView(newView);
   };
 

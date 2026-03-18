@@ -4,10 +4,7 @@
  * fail over automatically when a 429 / quota error is returned.
  */
 
-import {
-  createAIProvider,
-  createNovaProvider,
-} from "@/utils/aiProviderFactory";
+import { createAIProvider } from "@/utils/aiProviderFactory";
 import { buildQueuedProvider, QueuedAIProvider } from "@/utils/aiQueue";
 import { getAIConfig } from "@/config/aiConfig";
 import type { ProviderName } from "@/utils/storage";
@@ -49,24 +46,6 @@ export async function getAIProvider(): Promise<QueuedAIProvider | null> {
                 : undefined,
             )
           : null,
-    },
-    {
-      name: "chatgpt",
-      factory: () =>
-        config.chatgpt
-          ? createAIProvider(
-              "chatgpt",
-              config.chatgpt,
-              config.preferredProvider === "chatgpt"
-                ? config.preferredModel
-                : undefined,
-            )
-          : null,
-    },
-    {
-      name: "nova",
-      factory: () =>
-        config.novaConfig ? createNovaProvider(config.novaConfig) : null,
     },
   ];
 

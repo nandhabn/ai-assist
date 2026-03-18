@@ -1,0 +1,116 @@
+## Architecture Review — AI Flow Agent
+
+### What's Working Well
+- **Tool registry pattern** is clean, extensible, and well-structured. Adding new tools is genuinely simple.
+- **Cross-navigation resume** via snapshot persistence is a thoughtful solution for a hard problem in content-script agents.
+- **DOM diffing** (pre/post action observation) gives the AI meaningful feedback about what changed — this is a real differentiator vs. blind agents.
+- **Stuck detection** with multiple guards (visited actions per-URL, consecutive scrolls, consecutive no-ops) shows real-world debugging experience.
+- **Provider failover chain** with exponential backoff in `QueuedAIProvider` is well-engineered.
+
+---
+
+### Critical Issues
+
+#### 1. Security: No URL validation on `navigate()` tool — SSRF / phishing vector
+navigate.ts: The AI can navigate to **any URL** — `javascript:`, `data:`, , internal chrome URLs. There's zero validation. The AI decides the URL based on an LLM response, which can be manipulated via prompt injection from page content.
+
+```ts
+// Current — accepts anything
+window.location.href = params.url;
+```
+
+This is a **high-severity** issue. A malicious page could embed text that tricks the AI into navigating to a phishing site or executing a `javascript:` URI.
+
+#### 2. Security: `new Function()` code execution in skill tools
+skill-tool.ts: The code-mode skill tool uses `new Function()` to execute arbitrary user-provided JavaScript. While CSP is caught, the code itself runs with **full content-script privileges** (access to `chrome.runtime`, `chrome.storage`, the DOM, etc.). A user who shares a skill JSON export could execute arbitrary code in another user's browser.
+
+#### 3. Security: API keys stored in plaintext in `chrome.storage.local`
+aiConfig.ts: API keys (Gemini, OpenAI, AWS) are stored unencrypted in `chrome.storage.local`. Any extension with `storage` permission can read them. The AGENTS.md file even acknowledges this should go through a backend proxy but it's not implemented. For a production extension, this is a dealbreaker.
+
+#### 4. Security: `<all_urls>` host permissions + content script on every page
+manifest.json: The extension requests `<all_urls>` host permissions and injects a content script on literally every page. This means this agent is active on banking sites, email, health portals — everywhere. Combined with the navigate tool SSRF and the ability to `click` and `type` into any field, the attack surface is enormous.
+
+---
+
+### Architectural Problems
+
+#### 5. `strict: false` in tsconfig — the biggest code-quality red flag
+tsconfig.json: With `strict: false`, you're getting essentially no null-safety, no implicit-any checks, no strict property initialization. For an AI agent that manipulates the DOM and handles user credentials, this is reckless. The codebase is full of `as any` casts and loose typing that strict mode would catch.
+
+#### 6. Zero tests — not a single test file exists
+No `.test.ts`, no `.spec.ts`, no test framework in package.json. This is a complex agent with 30+ modules, tool dispatch, AI response parsing, JSON repair logic, DOM traversal, and URL extraction — all completely untested. The `safeJsonParse` repair logic alone has edge cases that scream for unit tests.
+
+#### 7. ChatGPT and Nova providers don't implement `callAgentTool()`
+chatgptProvider.ts and novaProvider.ts only implement `predictNextAction()`. The agent's entire execution loop calls `callAgentTool()`. This means:
+- If ChatGPT is the preferred provider, the agent **silently falls through** to whichever Gemini instance happens to exist in the chain.
+- If only ChatGPT or Nova is configured (no Gemini key), the agent **throws an error** and cannot start.
+- The failover in `QueuedAIProvider.callAgentTool()` doesn't even use the queue — it directly calls the first capable provider, bypassing all rate limiting and backoff logic.
+
+#### 8. God-module prompt builder
+prompts.ts: `buildAgentToolPrompt()` is a ~250-line function that constructs the entire system prompt by concatenating 15+ sections. It handles mission keywords, skill injection, observation formatting, element filtering, history compression, and steering hints — all in one function. This is unmaintainable and untestable. Prompt engineering iteration becomes painful when every change risks breaking the whole thing.
+
+#### 9. Shared mutable singleton state — the classic global variable antipattern
+state.ts: All module-level state lives in one mutable object passed around by import. Mutations happen from agentManager.ts, prediction.ts, execution.ts, content.ts, and agentPanel.ts — any of which can overwrite `state.aiProvider`, `state.currentMission`, `state.lastActionFailure` at any time. There's no synchronization, no ownership model, and data races are possible during async operations.
+
+#### 10. `callAgentTool` bypasses the entire queue system
+[aiQueue.ts line where `callAgentTool` is defined](src/utils/aiQueue.ts): `QueuedAIProvider.callAgentTool()` directly calls the provider without going through the queue. From the comment: *"This bypasses the standard queue so the agent loop isn't blocked"*. This means the rate limiting, backoff, and failover logic that exists for `predictNextAction` is **completely inoperative** for the agent's primary code path.
+
+---
+
+### Design Smell / Moderate Issues
+
+#### 11. Dual prediction paths create dead code
+The codebase maintains two complete prediction systems: the old `predictNextAction` label-matching path and the new `callAgentTool` tool-call path. The old path (`buildPredictionPrompt`, `contextBuilder.ts`, all the scoring/ranking infrastructure) appears to be dead code now that the agent uses tool calls exclusively. The `BatchingAIProvider` also only batches `predictNextAction` — which the agent loop never calls.
+
+#### 12. `__tool__:` JSON-in-selector hack
+execution.ts: The entire tool call is serialized as JSON into a `selector` string field prefixed with `__tool__:`. This was a shim to avoid refactoring `PredictionResult` / `RankedPrediction` types, but it means every step deserializes a JSON blob from inside a string field. It adds fragility and makes the types misleading (the `selector` property isn't actually a selector).
+
+#### 13. No abort/cancellation propagation
+The `AbortController` in `AgentExecutor` is created but never actually wired to cancel the `fetch` calls inside the providers. When the user clicks "Stop", the executor sets a flag, but the in-flight Gemini/OpenAI API call completes anyway and its response is silently discarded. For long-running API calls, this wastes quota.
+
+#### 14. Duplicated `safeJsonParse` / `extractJson` logic
+The JSON parsing/repair logic is duplicated across geminiProvider.ts, batchingProvider.ts, and chatgptProvider.ts. Each has slightly different repair heuristics. This should be a single shared utility.
+
+#### 15. agentPanel.ts — 800+ lines of inline CSS + DOM manipulation
+agentPanel.ts: The UI panel is built entirely via string templates and manual DOM manipulation with ~300 lines of inline CSS. This is fragile, hard to iterate on, and impossible to test. The shadow DOM approach is correct, but the implementation inside it is pre-framework web development circa 2010.
+
+#### 16. No token budget management
+The prompts sent to AI providers can grow unboundedly as history accumulates. While `turnHistory` is capped at 10 and `stepHistory` at 6–8, the page elements list (up to 80 items), skills with instructions, page text, and the massive tool prompt template itself can easily exceed token limits on cheaper models. There's no token counting or adaptive truncation.
+
+#### 17. Non-deterministic element matching is the agent's #1 failure mode
+`findElementByLabel()` and `findAllElementsByLabel()` use fuzzy substring matching against `textContent`, `aria-label`, `title`, etc. When the AI returns a label like "Submit", it could match any of 5 submit buttons on the page. The `scoreElement` heuristic helps but there's no guarantee. The DOM is a hostile, noisy environment — this approach has an inherent ceiling.
+
+---
+
+### Missing Capabilities for a Production Agent
+
+| Gap | Impact |
+|-----|--------|
+| **No observability / telemetry** | You're flying blind. No structured logs, no trace IDs, no way to debug a failed session except reading console.log output. |
+| **No user consent / confirmation mode** | The agent clicks, types, and navigates autonomously with zero user approval. For any action with consequences (purchases, form submissions, account changes), this is dangerous. |
+| **No rollback / undo** | If the agent takes a wrong action (fills wrong data, clicks delete), there's no way to recover. |
+| **No sandboxing of AI decisions** | The AI's output directly drives DOM manipulation. A hallucinated URL in `navigate()` or label in `click()` executes immediately. |
+| **No cost tracking** | No tracking of API token consumption or cost per session. Users can burn through their API quotas without awareness. |
+
+---
+
+### Summary Prioritization
+
+**Fix immediately (security):**
+1. URL validation on navigate tool
+2. Audit/sandbox `new Function()` in skill tools
+3. Reduce extension permissions from `<all_urls>`
+
+**Fix before any production use:**
+4. Enable `strict: true` in tsconfig
+5. Add test infrastructure and cover the core loop
+6. Implement `callAgentTool` in ChatGPT/Nova providers (or clearly document Gemini-only)
+7. Wire `callAgentTool` through the queue system
+
+**Improve incrementally:**
+8. Remove dead prediction code path
+9. Consolidate JSON parsing utilities
+10. Break up the god-prompt function
+11. Add a confirmation mode for destructive actions
+
+This is solid prototyping work — the agent loop design, tool registry, and navigation resume show real architectural thinking. But it's at the "works on my machine in a demo" stage, not "safe to ship to users." The security gaps and lack of testing are the biggest blockers.

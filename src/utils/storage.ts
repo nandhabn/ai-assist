@@ -8,14 +8,10 @@ const STORAGE_KEYS = {
   USER_KEYS: "flowRecorder_userKeys",
 } as const;
 
-export type ProviderName = "gemini" | "chatgpt" | "nova";
+export type ProviderName = "gemini";
 
 export interface UserKeys {
   gemini?: string;
-  openai?: string;
-  awsAccessKey?: string;
-  awsSecretKey?: string;
-  awsRegion?: string;
   /** Which provider to use first in the chain */
   preferredProvider?: ProviderName;
   /** Model override for the preferred provider */

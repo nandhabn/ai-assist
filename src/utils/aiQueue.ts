@@ -8,7 +8,7 @@
  *     provider in the chain is promoted and the request is tried again.
  *
  * Usage:
- *   const provider = buildQueuedProvider([chatgptProvider, geminiProvider]);
+ *   const provider = buildQueuedProvider([geminiProvider]);
  */
 
 import {

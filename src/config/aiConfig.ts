@@ -16,51 +16,10 @@ export type { ProviderName };
 /** Build-time fallback config (used during local development via .env). */
 export const AI_CONFIG = {
   gemini: import.meta.env.VITE_GEMINI_API_KEY,
-  chatgpt: import.meta.env.VITE_OPENAI_API_KEY,
-  /**
-   * Amazon Bedrock / Nova credentials.
-   * Prefer the individual vars (VITE_AWS_ACCESS_KEY etc.).
-   * Falls back to the legacy colon-separated VITE_AWS_BEDROCK_CREDENTIALS string.
-   */
-  novaConfig: (() => {
-    const accessKey = import.meta.env.VITE_AWS_ACCESS_KEY;
-    const secretKey = import.meta.env.VITE_AWS_SECRET_KEY;
-    const region = import.meta.env.VITE_AWS_REGION || "us-east-1";
-    const apiKey = import.meta.env.VITE_AWS_BEDROCK_API_KEY;
-    const model =
-      import.meta.env.VITE_AWS_NOVA_MODEL || "global.amazon.nova-2-lite-v1:0";
-    const legacy = import.meta.env.VITE_AWS_BEDROCK_CREDENTIALS;
-
-    // Individual vars take priority
-    if (accessKey && secretKey) {
-      return { accessKey, secretKey, region, model, bedrockApiKey: apiKey };
-    }
-    // Fall back to legacy colon-separated string
-    if (legacy) {
-      const parts = legacy.split(":");
-      return {
-        accessKey: parts[0],
-        secretKey: parts[1],
-        region:
-          parts.length >= 3 && parts[2].includes("-")
-            ? parts[2]
-            : parts[3] || "us-east-1",
-        bedrockApiKey: undefined as string | undefined,
-      };
-    }
-    return null;
-  })(),
-  /** Set true to use the open ChatGPT tab as a provider */
-  chatgptTab: false,
 };
-
-// Convenience alias used in provider-presence checks
-(AI_CONFIG as any).nova = AI_CONFIG.novaConfig;
 
 export interface ResolvedAIConfig {
   gemini?: string;
-  chatgpt?: string;
-  novaConfig: typeof AI_CONFIG.novaConfig;
   preferredProvider?: ProviderName;
   preferredModel?: string;
 }
@@ -72,26 +31,8 @@ export interface ResolvedAIConfig {
 export async function getAIConfig(): Promise<ResolvedAIConfig> {
   const userKeys = await getUserKeys();
 
-  const novaConfig = (() => {
-    if (userKeys.awsAccessKey && userKeys.awsSecretKey) {
-      return {
-        accessKey: userKeys.awsAccessKey,
-        secretKey: userKeys.awsSecretKey,
-        region: userKeys.awsRegion || "us-east-1",
-        model:
-          userKeys.preferredProvider === "nova" && userKeys.preferredModel
-            ? userKeys.preferredModel
-            : "global.amazon.nova-2-lite-v1:0",
-        bedrockApiKey: undefined as string | undefined,
-      };
-    }
-    return AI_CONFIG.novaConfig;
-  })();
-
   return {
     gemini: userKeys.gemini || AI_CONFIG.gemini,
-    chatgpt: userKeys.openai || AI_CONFIG.chatgpt,
-    novaConfig,
     preferredProvider: userKeys.preferredProvider,
     preferredModel: userKeys.preferredModel,
   };
@@ -100,11 +41,10 @@ export async function getAIConfig(): Promise<ResolvedAIConfig> {
 // --- Developer Experience & Security Warnings ---
 
 if (import.meta.env.DEV) {
-  const hasNova = !!AI_CONFIG.novaConfig;
-  if (!AI_CONFIG.gemini && !AI_CONFIG.chatgpt && !hasNova) {
+  if (!AI_CONFIG.gemini) {
     console.warn(
-      "[AI_CONFIG] No AI provider keys found in .env file. " +
-        "Users can provide keys via the Settings panel in the popup.",
+      "[AI_CONFIG] No Gemini API key found in .env file. " +
+        "Users can provide a key via the Settings panel in the popup.",
     );
   }
 }

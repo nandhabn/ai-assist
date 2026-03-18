@@ -10,6 +10,7 @@ import {
   buildPredictionPrompt,
   buildAgentToolPrompt,
 } from "@/config/prompts";
+import { safeJsonParse } from "@/utils/jsonUtils";
 
 function aiLog(msg: string) {
   const now = new Date();
@@ -39,72 +40,6 @@ export function resetGeminiCallStats() {
 // ─── Safe JSON parser ─────────────────────────────────────────────────────────
 
 /**
- * Parses a Gemini response string into T.
- * Handles two common failure modes:
- *
- * 1. Markdown code fences — Gemini sometimes wraps output in ```json ... ```
- *    even when response_mime_type is set to application/json.
- *
- * 2. Truncated strings — when maxOutputTokens is too low the last JSON string
- *    value gets cut off, leaving an unterminated string.  We attempt a repair
- *    by closing the string and all open braces/brackets before retrying.
- */
-function safeJsonParse<T>(raw: string): T {
-  // 1. Strip markdown code fences
-  let text = raw.trim();
-  const fenceMatch = text.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/);
-  if (fenceMatch) text = fenceMatch[1].trim();
-
-  // 2. Strip any prose preamble before the first '{' or '['
-  //    e.g. "Here is the JSON requested:\n{...}"
-  const firstBrace = text.search(/[{[]/);
-  if (firstBrace > 0) text = text.slice(firstBrace).trim();
-
-  // 3. Try a clean parse first
-  try {
-    return JSON.parse(text) as T;
-  } catch (firstErr) {
-    // 4. Attempt truncation repair for truncated/incomplete JSON
-    const msg = (firstErr as Error).message ?? "";
-    const isTruncation =
-      msg.includes("Unterminated") ||
-      msg.includes("Unexpected end") ||
-      msg.includes("Expected property name") ||
-      msg.includes("Unexpected token");
-    if (!isTruncation) {
-      throw firstErr;
-    }
-
-    // Close any open string, then close open braces/brackets
-    let repaired = text;
-    // Count unescaped quotes to determine if we're inside a string
-    const quoteCount = (repaired.match(/(?<!\\)"/g) ?? []).length;
-    if (quoteCount % 2 !== 0) repaired += '"'; // close open string
-
-    // If the text ends with a bare ":" (missing value), insert null
-    if (/:\s*$/.test(repaired)) repaired += "null";
-
-    // Close any open objects/arrays (scan the stack)
-    const stack: string[] = [];
-    for (const ch of repaired) {
-      if (ch === "{") stack.push("}");
-      else if (ch === "[") stack.push("]");
-      else if (ch === "}" || ch === "]") stack.pop();
-    }
-    repaired += stack.reverse().join("");
-
-    try {
-      const result = JSON.parse(repaired) as T;
-      console.warn("[Gemini] Repaired truncated JSON successfully.");
-      return result;
-    } catch (repairErr) {
-      // Re-throw the original error so callers see the real problem
-      throw firstErr;
-    }
-  }
-}
-
-/**
  * An AIProvider implementation that uses Google's Gemini Pro model.
  *
  * @Architectural-Note This class is designed to work within a Chrome Extension's
@@ -130,6 +65,7 @@ export class GeminiProvider implements AIProvider {
   }
 
   private get endpoint() {
+    console.log(this.model)
     return `https://generativelanguage.googleapis.com/v1beta/models/${this.model}:generateContent`;
   }
 

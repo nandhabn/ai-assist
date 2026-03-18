@@ -14,7 +14,7 @@ export function overrideFetch(
     const startTime = performance.now();
 
     try {
-      const response = await originalFetch(...args);
+      const response = await originalFetch(...(args as Parameters<typeof fetch>));
 
       const duration = performance.now() - startTime;
 

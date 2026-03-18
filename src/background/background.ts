@@ -280,28 +280,6 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           });
           break;
         }
-        case "NOVA_CONVERSE": {
-          // Proxy Bedrock fetch through the background worker to bypass CORS.
-          // The content script performs SigV4 signing and sends us the fully-signed
-          // headers + body; we just execute the fetch and return the response text.
-          try {
-            const { url, headers, body } = request as {
-              url: string;
-              headers: Record<string, string>;
-              body: string;
-            };
-            const resp = await fetch(url, { method: "POST", headers, body });
-            const text = await resp.text();
-            if (!resp.ok) {
-              sendResponse({ ok: false, status: resp.status, body: text });
-            } else {
-              sendResponse({ ok: true, body: text });
-            }
-          } catch (err: any) {
-            sendResponse({ ok: false, error: err.message });
-          }
-          break;
-        }
         default:
           sendResponse({ error: "Unknown action" });
       }

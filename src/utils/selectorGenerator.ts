@@ -31,7 +31,7 @@ export function generateCSSSelector(element: HTMLElement): string {
 
     const siblings = current.parentElement
       ? Array.from(current.parentElement.children).filter(
-          (el) => el.tagName === current.tagName,
+          (el) => el.tagName === current?.tagName,
         )
       : [];
 

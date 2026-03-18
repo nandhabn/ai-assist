@@ -1213,9 +1213,14 @@ export function appendAgentLogEntry(step: AgentStep) {
   // Build prompt section: prefer the full prompt stored on the step, fall back to tool-call params
   let promptHtml = "";
   if ((step as AgentStep & { prompt?: string }).prompt) {
+    const promptText = (step as AgentStep & { prompt?: string }).prompt!;
+    const tokenEstimate = Math.ceil(promptText.length / 4);
+    const tokenLabel = tokenEstimate >= 1000
+      ? `~${(tokenEstimate / 1000).toFixed(1)}k tokens`
+      : `~${tokenEstimate} tokens`;
     promptHtml =
-      `<div class="tt-prompt"><span class="tt-prompt-label">📋 Prompt sent to AI</span>` +
-      escapeHtml((step as AgentStep & { prompt?: string }).prompt!) +
+      `<div class="tt-prompt"><span class="tt-prompt-label">📋 Prompt sent to AI (${tokenLabel})</span>` +
+      escapeHtml(promptText) +
       `</div>`;
   } else if (step.selector?.startsWith("__tool__:")) {
     try {

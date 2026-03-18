@@ -36,6 +36,7 @@ import {
   buildPredictionPrompt,
   formatPageMeta,
 } from "@/config/prompts";
+import { safeJsonParse } from "@/utils/jsonUtils";
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 
@@ -67,50 +68,10 @@ export interface BatchingProviderOptions {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((r) => setTimeout(r, ms));
-}
-
 function log(msg: string) {
   const now = new Date();
   const ts = `${now.toLocaleTimeString("en-GB")}.${String(now.getMilliseconds()).padStart(3, "0")}`;
   console.log(`[BatchingProvider] [${ts}] ${msg}`);
-}
-
-/**
- * Parses a Gemini response string into T.
- * Handles markdown code fences and attempts to repair truncated JSON.
- */
-function safeJsonParse<T>(raw: string): T {
-  let text = raw.trim();
-  const fenceMatch = text.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/);
-  if (fenceMatch) text = fenceMatch[1].trim();
-
-  try {
-    return JSON.parse(text) as T;
-  } catch (firstErr) {
-    const msg = (firstErr as Error).message ?? "";
-    if (!msg.includes("Unterminated") && !msg.includes("Unexpected end"))
-      throw firstErr;
-
-    let repaired = text;
-    const quoteCount = (repaired.match(/(?<!\\)"/g) ?? []).length;
-    if (quoteCount % 2 !== 0) repaired += '"';
-    const stack: string[] = [];
-    for (const ch of repaired) {
-      if (ch === "{") stack.push("}");
-      else if (ch === "[") stack.push("]");
-      else if (ch === "}" || ch === "]") stack.pop();
-    }
-    repaired += stack.reverse().join("");
-    try {
-      const result = JSON.parse(repaired) as T;
-      console.warn("[BatchingProvider] Repaired truncated JSON.");
-      return result;
-    } catch {
-      throw firstErr;
-    }
-  }
 }
 
 // ─── Pending item type ────────────────────────────────────────────────────────

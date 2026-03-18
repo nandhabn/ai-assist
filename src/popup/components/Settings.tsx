@@ -18,33 +18,14 @@ const MODEL_OPTIONS: Record<ProviderName, { value: string; label: string }[]> =
       { value: "gemini-1.5-flash", label: "Gemini 1.5 Flash" },
       { value: "gemini-1.5-pro", label: "Gemini 1.5 Pro" },
     ],
-    chatgpt: [
-      { value: "gpt-4o-mini", label: "GPT-4o mini (default)" },
-      { value: "gpt-4o", label: "GPT-4o" },
-      { value: "gpt-4-turbo", label: "GPT-4 Turbo" },
-      { value: "gpt-3.5-turbo", label: "GPT-3.5 Turbo" },
-    ],
-    nova: [
-      {
-        value: "global.amazon.nova-2-lite-v1:0",
-        label: "Nova 2 Lite (default)",
-      },
-      { value: "amazon.nova-pro-v1:0", label: "Nova Pro" },
-      { value: "amazon.nova-lite-v1:0", label: "Nova Lite" },
-      { value: "amazon.nova-micro-v1:0", label: "Nova Micro" },
-    ],
   };
 
 const DEFAULT_MODELS: Record<ProviderName, string> = {
   gemini: "gemini-2.5-flash",
-  chatgpt: "gpt-4o-mini",
-  nova: "global.amazon.nova-2-lite-v1:0",
 };
 
 const PROVIDER_LABELS: Record<ProviderName, string> = {
   gemini: "Gemini",
-  chatgpt: "OpenAI / ChatGPT",
-  nova: "Amazon Nova",
 };
 
 // ─── Active provider resolver (mirrors providers.ts logic, no imports) ────────
@@ -53,19 +34,11 @@ function resolveActiveProvider(
   keys: UserKeys,
 ): { provider: ProviderName; model: string } | null {
   const order: ProviderName[] = keys.preferredProvider
-    ? [
-        keys.preferredProvider,
-        ...(["gemini", "chatgpt", "nova"] as ProviderName[]).filter(
-          (p) => p !== keys.preferredProvider,
-        ),
-      ]
-    : ["gemini", "chatgpt", "nova"];
+    ? [keys.preferredProvider]
+    : ["gemini"];
 
   for (const p of order) {
-    const hasKey =
-      (p === "gemini" && !!keys.gemini) ||
-      (p === "chatgpt" && !!keys.openai) ||
-      (p === "nova" && !!keys.awsAccessKey && !!keys.awsSecretKey);
+    const hasKey = p === "gemini" && !!keys.gemini;
 
     if (hasKey) {
       const model =
@@ -191,8 +164,6 @@ export default function Settings() {
             onChange={handleProviderChange}
           >
             <option value="gemini">Gemini</option>
-            <option value="chatgpt">OpenAI / ChatGPT</option>
-            <option value="nova">Amazon Nova</option>
           </select>
         </div>
 
@@ -247,74 +218,7 @@ export default function Settings() {
           />
         </div>
 
-        <div className="settings-group">
-          <label className="settings-label" htmlFor="openai-key">
-            OpenAI API Key
-            <a
-              className="settings-link"
-              href="https://platform.openai.com/api-keys"
-              target="_blank"
-              rel="noreferrer"
-            >
-              Get key ↗
-            </a>
-          </label>
-          <input
-            id="openai-key"
-            className="settings-input"
-            type="password"
-            placeholder="sk-…"
-            value={keys.openai || ""}
-            onChange={handleChange("openai")}
-            autoComplete="off"
-          />
-        </div>
 
-        <details className="settings-details">
-          <summary className="settings-summary">Amazon Bedrock / Nova</summary>
-          <div className="settings-group">
-            <label className="settings-label" htmlFor="aws-access">
-              AWS Access Key ID
-            </label>
-            <input
-              id="aws-access"
-              className="settings-input"
-              type="password"
-              placeholder="AKIA…"
-              value={keys.awsAccessKey || ""}
-              onChange={handleChange("awsAccessKey")}
-              autoComplete="off"
-            />
-          </div>
-          <div className="settings-group">
-            <label className="settings-label" htmlFor="aws-secret">
-              AWS Secret Access Key
-            </label>
-            <input
-              id="aws-secret"
-              className="settings-input"
-              type="password"
-              placeholder="…"
-              value={keys.awsSecretKey || ""}
-              onChange={handleChange("awsSecretKey")}
-              autoComplete="off"
-            />
-          </div>
-          <div className="settings-group">
-            <label className="settings-label" htmlFor="aws-region">
-              AWS Region
-            </label>
-            <input
-              id="aws-region"
-              className="settings-input"
-              type="text"
-              placeholder="us-east-1"
-              value={keys.awsRegion || ""}
-              onChange={handleChange("awsRegion")}
-              autoComplete="off"
-            />
-          </div>
-        </details>
       </div>
 
       <div className="settings-actions">
